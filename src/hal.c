@@ -16,7 +16,7 @@ Aet_CPU_Error aet_cpu_load_program(Aet_CPU *cpu, Aet_Program program) {
   return Aet_CPU_Error_None;
 }
 
-Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, usize budget) {
+Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
   usize cycle_spent = 0;
 
   while (cycle_spent < budget) {
@@ -51,6 +51,83 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, usize budget) {
     case Aet_CPU_Opcode_Div: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
       cpu->registers[rd] = cpu->registers[rs1] / cpu->registers[rs2];
+    } break;
+    case Aet_CPU_Opcode_And: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      cpu->registers[rd] = cpu->registers[rs1] & cpu->registers[rs2];
+    } break;
+    case Aet_CPU_Opcode_Or: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      cpu->registers[rd] = cpu->registers[rs1] | cpu->registers[rs2];
+    } break;
+    case Aet_CPU_Opcode_Xor: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      cpu->registers[rd] = cpu->registers[rs1] ^ cpu->registers[rs2];
+    } break;
+    case Aet_CPU_Opcode_Shl: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      cpu->registers[rd] = cpu->registers[rs1] << cpu->registers[rs2];
+    } break;
+    case Aet_CPU_Opcode_Shr: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      cpu->registers[rd] = cpu->registers[rs1] >> cpu->registers[rs2];
+    } break;
+    case Aet_CPU_Opcode_Lb: {
+      u32 immediate = (u32)((instr >> 16) & 0xffff);
+      u32 addr = cpu->registers[rs1] + immediate;
+
+      byte value = 0;
+      assert(aet_ram_read_byte(ram, addr, &value) == Aet_RAM_Error_None);
+      cpu->registers[rd] = (u32)value;
+    } break;
+    case Aet_CPU_Opcode_Lh: {
+      u32 immediate = (u32)((instr >> 16) & 0xffff);
+      u32 addr = cpu->registers[rs1] + immediate;
+
+      u16 value = 0;
+      assert(aet_ram_read_u16(ram, addr, &value) == Aet_RAM_Error_None);
+      cpu->registers[rd] = (u16)value;
+    } break;
+    case Aet_CPU_Opcode_Lw: {
+      u32 immediate = (u32)((instr >> 16) & 0xffff);
+      u32 addr = cpu->registers[rs1] + immediate;
+
+      u32 value = 0;
+      assert(aet_ram_read_u32(ram, addr, &value) == Aet_RAM_Error_None);
+      cpu->registers[rd] = value;
+    } break;
+    case Aet_CPU_Opcode_Sb: {
+      u32 immediate = (u32)((instr >> 16) & 0xffff);
+      u32 addr = cpu->registers[rs1] + immediate;
+
+      assert(
+          aet_ram_write_u32(ram, addr, (byte)cpu->registers[rd]) ==
+          Aet_RAM_Error_None
+      );
+    } break;
+    case Aet_CPU_Opcode_Sh: {
+      u32 immediate = (u32)((instr >> 16) & 0xffff);
+      u32 addr = cpu->registers[rs1] + immediate;
+
+      assert(
+          aet_ram_write_u32(ram, addr, (u16)cpu->registers[rd]) ==
+          Aet_RAM_Error_None
+      );
+    } break;
+    case Aet_CPU_Opcode_Sw: {
+      u32 immediate = (u32)((instr >> 16) & 0xffff);
+      u32 addr = cpu->registers[rs1] + immediate;
+
+      assert(
+          aet_ram_write_u32(ram, addr, cpu->registers[rd]) == Aet_RAM_Error_None
+      );
+    } break;
+    case Aet_CPU_Opcode_Beq: {
+      rs1 = rd;
+      Aet_Register rs2 = rs1;
+      i32 offset = (i32)((instr >> 16) & 0xffff);
+
+      cpu->pc = rs1 == rs2 ? (u32)((i32)cpu->pc + offset) : 0;
     } break;
     case Aet_CPU_Opcode_MAX:
       assert(false);

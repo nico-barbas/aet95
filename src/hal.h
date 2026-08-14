@@ -15,6 +15,18 @@ typedef enum Aet_CPU_Opcode : byte {
   Aet_CPU_Opcode_Sub,
   Aet_CPU_Opcode_Mul,
   Aet_CPU_Opcode_Div,
+  Aet_CPU_Opcode_And,
+  Aet_CPU_Opcode_Or,
+  Aet_CPU_Opcode_Xor,
+  Aet_CPU_Opcode_Shl,
+  Aet_CPU_Opcode_Shr,
+  Aet_CPU_Opcode_Lb,
+  Aet_CPU_Opcode_Lh,
+  Aet_CPU_Opcode_Lw,
+  Aet_CPU_Opcode_Sb,
+  Aet_CPU_Opcode_Sh,
+  Aet_CPU_Opcode_Sw,
+  Aet_CPU_Opcode_Beq,
   Aet_CPU_Opcode_MAX,
 } Aet_CPU_Opcode;
 
@@ -73,7 +85,7 @@ typedef struct Aet_RAM {
 
 Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu);
 Aet_CPU_Error aet_cpu_load_program(Aet_CPU *cpu, Aet_Program program);
-Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, usize budget);
+Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget);
 
 Aet_RAM_Error aet_ram_read_byte(Aet_RAM *ram, u32 addr, byte *out);
 Aet_RAM_Error aet_ram_write_byte(Aet_RAM *ram, u32 addr, byte value);

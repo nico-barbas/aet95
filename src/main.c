@@ -6,7 +6,9 @@
 #include <stdio.h>
 
 const char *src = "mul r0, r1, r2\n"
-                  "addi r0, r1, 100";
+                  "addi r0, r1, 100\n"
+                  "shiftr r0, r1, r2\n"
+                  "loadb r0, r1, -64";
 
 int main(void) {
   Allocator allocator = heap_allocator();

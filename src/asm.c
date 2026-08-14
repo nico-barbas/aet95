@@ -12,7 +12,19 @@
   X(Add, "add")                                                                \
   X(Sub, "sub")                                                                \
   X(Mul, "mul")                                                                \
-  X(Div, "div")
+  X(Div, "div")                                                                \
+  X(And, "and")                                                                \
+  X(Or, "or")                                                                  \
+  X(Xor, "xor")                                                                \
+  X(Shl, "shiftl")                                                             \
+  X(Shr, "shiftr")                                                             \
+  X(Lb, "loadb")                                                               \
+  X(Lh, "loadh")                                                               \
+  X(Lw, "loadw")                                                               \
+  X(Sb, "storeb")                                                              \
+  X(Sh, "storeh")                                                              \
+  X(Sw, "storew")                                                              \
+  X(Beq, "brancheq")
 
 typedef enum Aet_Assembly_Token_Kind {
   Aet_Assembly_Token_Kind_EOF,
@@ -87,6 +99,15 @@ static bool32 char_is_letter(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
+static bool32 aet_assembler_starts_number(String_Reader *reader, char c) {
+  if (char_is_number(c)) {
+    return true;
+  }
+
+  return c == '-' && !string_reader_is_eof(reader) &&
+         char_is_number(string_reader_peek(reader));
+}
+
 static bool32 aet_assembly_token_is_instruction(Aet_Assembly_Token token) {
   return token.kind > Aet_Assembly_Token_Kind_instruction_start_ &&
          token.kind < Aet_Assembly_Token_Kind_instruction_end_;
@@ -117,6 +138,8 @@ static void aet_assembler_skip_whitespace(String_Reader *reader) {
   }
 }
 
+// NOTE(nico): called with the sign (if any) and the first digit already
+// consumed, so this only walks the remaining digits and the decimal point.
 static Aet_Assembler_Error aet_assembler_lex_number(String_Reader *reader) {
   bool32 has_decimal = false;
   char previous_char = '\0';
@@ -224,7 +247,7 @@ static Aet_Assembly_Token aet_assembler_next_token(String_Reader *reader) {
     token.kind = Aet_Assembly_Token_Kind_Comma;
     break;
   default: {
-    if (char_is_number(c)) {
+    if (aet_assembler_starts_number(reader, c)) {
       // FIXME(nico): Need to refactor everything to have the error flow up
       // I really don't like passing out paramaters
       token.kind = Aet_Assembly_Token_Kind_Number_Literal;
@@ -277,7 +300,7 @@ static bool32 aet_assembler_expect_token(
 }
 
 static Aet_Assembler_Instruction_Result
-aet_assemble_arithmetic_op(Aet_Assembler *assembler, Aet_CPU_Opcode op) {
+aet_assemble_register_register_op(Aet_Assembler *assembler, Aet_CPU_Opcode op) {
   Aet_Assembly_Token arg1 = aet_assembler_consume_token(assembler);
   if (!aet_assembly_token_is_register(arg1)) {
     return (Aet_Assembler_Instruction_Result){
@@ -321,27 +344,9 @@ aet_assemble_arithmetic_op(Aet_Assembler *assembler, Aet_CPU_Opcode op) {
 }
 
 static Aet_Assembler_Instruction_Result
-aet_assemble_add(Aet_Assembler *assembler) {
-  return aet_assemble_arithmetic_op(assembler, Aet_CPU_Opcode_Add);
-}
-
-static Aet_Assembler_Instruction_Result
-aet_assemble_sub(Aet_Assembler *assembler) {
-  return aet_assemble_arithmetic_op(assembler, Aet_CPU_Opcode_Sub);
-}
-
-static Aet_Assembler_Instruction_Result
-aet_assemble_mul(Aet_Assembler *assembler) {
-  return aet_assemble_arithmetic_op(assembler, Aet_CPU_Opcode_Mul);
-}
-
-static Aet_Assembler_Instruction_Result
-aet_assemble_div(Aet_Assembler *assembler) {
-  return aet_assemble_arithmetic_op(assembler, Aet_CPU_Opcode_Div);
-}
-
-static Aet_Assembler_Instruction_Result
-aet_assemble_addi(Aet_Assembler *assembler) {
+aet_assemble_register_immediate_operation(
+    Aet_Assembler *assembler, Aet_CPU_Opcode op
+) {
   Aet_Assembly_Token arg1 = aet_assembler_consume_token(assembler);
   if (!aet_assembly_token_is_register(arg1)) {
     return (Aet_Assembler_Instruction_Result){
@@ -386,8 +391,8 @@ aet_assemble_addi(Aet_Assembler *assembler) {
   }
 
   return (Aet_Assembler_Instruction_Result){
-    .instr = (u32)(Aet_CPU_Opcode_Addi) | ((u32)rd << 8) | ((u32)rs1 << 12) |
-             ((u32)immediate << 16)
+    .instr =
+        (u32)(op) | ((u32)rd << 8) | ((u32)rs1 << 12) | ((u32)immediate << 16)
   };
 }
 
@@ -427,20 +432,80 @@ Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
 
     switch (token.kind) {
     case Aet_Assembly_Token_Kind_Addi:
-      instr_result = aet_assemble_addi(&assembler);
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Addi
+      );
       break;
     case Aet_Assembly_Token_Kind_Add:
-      instr_result = aet_assemble_add(&assembler);
+      instr_result =
+          aet_assemble_register_register_op(&assembler, Aet_CPU_Opcode_Add);
       break;
     case Aet_Assembly_Token_Kind_Sub:
-      instr_result = aet_assemble_sub(&assembler);
+      instr_result =
+          aet_assemble_register_register_op(&assembler, Aet_CPU_Opcode_Sub);
       break;
     case Aet_Assembly_Token_Kind_Mul:
-      instr_result = aet_assemble_mul(&assembler);
+      instr_result =
+          aet_assemble_register_register_op(&assembler, Aet_CPU_Opcode_Mul);
       break;
     case Aet_Assembly_Token_Kind_Div:
-      instr_result = aet_assemble_div(&assembler);
+      instr_result =
+          aet_assemble_register_register_op(&assembler, Aet_CPU_Opcode_Div);
       break;
+    case Aet_Assembly_Token_Kind_And:
+      instr_result =
+          aet_assemble_register_register_op(&assembler, Aet_CPU_Opcode_And);
+      break;
+    case Aet_Assembly_Token_Kind_Or:
+      instr_result =
+          aet_assemble_register_register_op(&assembler, Aet_CPU_Opcode_Or);
+      break;
+    case Aet_Assembly_Token_Kind_Xor:
+      instr_result =
+          aet_assemble_register_register_op(&assembler, Aet_CPU_Opcode_Xor);
+      break;
+    case Aet_Assembly_Token_Kind_Shl:
+      instr_result =
+          aet_assemble_register_register_op(&assembler, Aet_CPU_Opcode_Shl);
+      break;
+    case Aet_Assembly_Token_Kind_Shr:
+      instr_result =
+          aet_assemble_register_register_op(&assembler, Aet_CPU_Opcode_Shr);
+      break;
+    case Aet_Assembly_Token_Kind_Lb:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Lb
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Lh:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Lh
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Lw:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Lw
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Sb:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Sb
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Sh:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Sh
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Sw:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Sw
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Beq:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Beq
+      );
     default:
       break;
     }
@@ -480,6 +545,18 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     [Aet_CPU_Opcode_Sub] = "sub",
     [Aet_CPU_Opcode_Mul] = "mul",
     [Aet_CPU_Opcode_Div] = "div",
+    [Aet_CPU_Opcode_And] = "and",
+    [Aet_CPU_Opcode_Or] = "or",
+    [Aet_CPU_Opcode_Xor] = "xor",
+    [Aet_CPU_Opcode_Shl] = "shiftl",
+    [Aet_CPU_Opcode_Shr] = "shiftr",
+    [Aet_CPU_Opcode_Lb] = "loadb",
+    [Aet_CPU_Opcode_Lh] = "laodh",
+    [Aet_CPU_Opcode_Lw] = "loadw",
+    [Aet_CPU_Opcode_Sb] = "storeb",
+    [Aet_CPU_Opcode_Sh] = "storeh",
+    [Aet_CPU_Opcode_Sw] = "storew",
+    [Aet_CPU_Opcode_Beq] = "brancheq",
   };
   static const char *register_lookup[Aet_Register_MAX] = {
     [Aet_Register_R0] = "r0",
@@ -527,7 +604,14 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     );
 
     switch (opcode) {
-    case Aet_CPU_Opcode_Addi: {
+    case Aet_CPU_Opcode_Addi:
+    case Aet_CPU_Opcode_Lb:
+    case Aet_CPU_Opcode_Lh:
+    case Aet_CPU_Opcode_Lw:
+    case Aet_CPU_Opcode_Sb:
+    case Aet_CPU_Opcode_Sh:
+    case Aet_CPU_Opcode_Sw:
+    case Aet_CPU_Opcode_Beq: {
       u32 immediate = (u32)((instr >> 16) & 0xffff);
       // FIXME(nico): need to expand the builder
       builder_write_i32(&builder, (i32)immediate);
@@ -535,7 +619,12 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     case Aet_CPU_Opcode_Add:
     case Aet_CPU_Opcode_Sub:
     case Aet_CPU_Opcode_Mul:
-    case Aet_CPU_Opcode_Div: {
+    case Aet_CPU_Opcode_Div:
+    case Aet_CPU_Opcode_And:
+    case Aet_CPU_Opcode_Or:
+    case Aet_CPU_Opcode_Xor:
+    case Aet_CPU_Opcode_Shl:
+    case Aet_CPU_Opcode_Shr: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
       builder_write_string(&builder, from_c_str(register_lookup[rs2]));
     } break;
