@@ -1,0 +1,10 @@
+.zig-cache
+zig-out
+zig-pkg
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

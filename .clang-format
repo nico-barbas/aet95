@@ -1,0 +1,20 @@
+Language: Cpp
+AlignAfterOpenBracket: BlockIndent
+AlignConsecutiveAssignments: None
+AlignEscapedNewlines: Right
+AlignOperands: Align
+AlignTrailingComments: Always
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BinPackArguments: false
+BinPackParameters: false
+BracedInitializerIndentWidth: 2
+BreakBeforeTernaryOperators: true
+IncludeBlocks: Regroup
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: false
+  AfterStruct: false
