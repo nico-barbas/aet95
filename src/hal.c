@@ -1,5 +1,7 @@
 #include "hal.h"
 
+#include "core/allocator.h"
+
 #include <assert.h>
 
 Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu) {
@@ -138,6 +140,23 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
   }
 
   return Aet_CPU_Error_None;
+}
+
+Aet_RAM_Error aet_ram_init(Aet_RAM *ram, Allocator allocator) {
+  ram->allocator = allocator;
+
+  Allocation_Result alloc =
+      allocator.alloc(allocator, AET_RAM_CAP * sizeof(byte));
+  if (alloc.err != Allocation_Error_None) {
+    return Aet_RAM_Error_Failed_To_Initialize;
+  }
+
+  ram->raw = (byte *)alloc.allocation;
+  return Aet_RAM_Error_None;
+}
+
+void aet_ram_destroy(Aet_RAM *ram) {
+  ram->allocator.free(ram->allocator, ram->raw);
 }
 
 Aet_RAM_Error aet_ram_read_byte(Aet_RAM *ram, u32 addr, byte *out) {

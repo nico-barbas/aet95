@@ -168,6 +168,10 @@ fn linkWgpuSystemDependencies(
                 mod.linkSystemLibrary("RuntimeObject", .{});
             } else {
                 mod.linkSystemLibrary("api-ms-win-core-winrt-error-l1-1-0", .{});
+                // The mingw prebuilt is a Rust staticlib built against the GCC
+                // unwinder; LLVM's libunwind supplies the _Unwind_* personality
+                // routines it expects.
+                mod.linkSystemLibrary("unwind", .{});
             }
             inline for (.{
                 "opengl32", "gdi32", "oleaut32", "ole32", "ws2_32", "userenv", "propsys",

@@ -8,3 +8,4 @@ zig-pkg
 *.swp
 *~
 .DS_Store
+*.sublime-workspace

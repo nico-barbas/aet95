@@ -4,9 +4,6 @@
 typedef char bool8;
 typedef unsigned int bool32;
 
-// #define false 0
-// #define true 1
-
 typedef void *rawptr;
 
 typedef unsigned char byte;

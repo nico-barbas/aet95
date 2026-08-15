@@ -1,7 +1,7 @@
 #ifndef CORE_ALLOCATOR_H
 #define CORE_ALLOCATOR_H
 
-#include "./types.h"
+#include "core/types.h"
 
 #define KILOBYTE 1024
 #define MEGABYTE (1024 * KILOBYTE)

@@ -1,7 +1,7 @@
 #include "strings.h"
 
-#include "./allocator.h"
-#include "./types.h"
+#include "core/allocator.h"
+#include "core/types.h"
 
 #include <assert.h>
 #include <math.h>
@@ -79,6 +79,20 @@ bool32 string_equal(String s1, String s2) {
   return memcmp(s1.ptr, s2.ptr, s1.len * sizeof(char)) == 0;
 }
 
+bool32 string_to_u16(String str, u16 *out) {
+  u16 n = 0;
+  for (usize i = 0; i < str.len; i += 1) {
+    if (!char_is_number(str.data[i])) {
+      return false;
+    }
+
+    n = n * 10 + (u16)(str.data[i] - '0');
+  }
+
+  *out = n;
+  return true;
+}
+
 bool32 string_to_u32(String str, u32 *out) {
   u32 n = 0;
   for (usize i = 0; i < str.len; i += 1) {
@@ -93,17 +107,25 @@ bool32 string_to_u32(String str, u32 *out) {
   return true;
 }
 
-bool32 string_to_u16(String str, u16 *out) {
-  u16 n = 0;
-  for (usize i = 0; i < str.len; i += 1) {
+bool32 string_to_i64(String str, i64 *out) {
+  i64 n = 0;
+  i64 sign = 1;
+
+  usize i = 0;
+  if (str.data[0] == '-') {
+    sign = -1;
+    i += 1;
+  }
+
+  for (; i < str.len; i += 1) {
     if (!char_is_number(str.data[i])) {
       return false;
     }
 
-    n = n * 10 + (u16)(str.data[i] - '0');
+    n = n * 10 + (i64)(str.data[i] - '0');
   }
 
-  *out = n;
+  *out = n * sign;
   return true;
 }
 

@@ -1,7 +1,8 @@
-#include "./allocator.h"
+#include "core/allocator.h"
 
-#include "./types.h"
-#include "stdlib.h"
+#include "core/types.h"
+
+#include <stdlib.h>
 
 static Allocation_Result arena_alloc(Allocator allocator, usize size) {
   Arena_Data *arena = (Arena_Data *)allocator.ptr;

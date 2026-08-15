@@ -75,17 +75,22 @@ typedef struct Aet_CPU {
 
 typedef enum Aet_RAM_Error {
   Aet_RAM_Error_None,
+  Aet_RAM_Error_Failed_To_Initialize,
   Aet_RAM_Error_Invalid_Read_Ptr,
   Aet_RAM_Error_Access_Out_Of_Bounds,
 } Aet_RAM_Error;
 
 typedef struct Aet_RAM {
-  byte raw[AET_RAM_CAP];
+  Allocator allocator;
+  byte *raw;
 } Aet_RAM;
 
 Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu);
 Aet_CPU_Error aet_cpu_load_program(Aet_CPU *cpu, Aet_Program program);
 Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget);
+
+Aet_RAM_Error aet_ram_init(Aet_RAM *ram, Allocator allocator);
+void aet_ram_destroy(Aet_RAM *ram);
 
 Aet_RAM_Error aet_ram_read_byte(Aet_RAM *ram, u32 addr, byte *out);
 Aet_RAM_Error aet_ram_write_byte(Aet_RAM *ram, u32 addr, byte value);

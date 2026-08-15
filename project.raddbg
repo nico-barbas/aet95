@@ -1,0 +1,9 @@
+// raddbg 0.9.27 project file
+
+name: aet95
+target:
+{
+  executable: "zig-out/bin/aet95.exe"
+  working_directory: "../aet95"
+  enabled: 1
+}

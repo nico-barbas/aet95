@@ -1,0 +1,53 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "folder_exclude_patterns": [".git", ".zig-cache", "zig-out", "zig-pkg"],
+      "file_exclude_patterns": ["*.sublime-workspace", "*.exe", "*.pdb"]
+    }
+  ],
+  "build_systems": [
+    {
+      "name": "aet95",
+      "working_dir": "$project_path",
+      // clang error format: filename:line:column: error: message
+      "file_regex": "^(.+?):(\\d+):(\\d+): (?:fatal )?(?:error|warning): (.+)$",
+      "syntax": "Packages/Text/Plain text.tmLanguage",
+      // Default optimize mode is Debug, which defines DEBUG (see build.zig).
+      "cmd": ["zig", "build"],
+      "variants": [
+        {
+          "name": "Run",
+          "cmd": ["zig", "build", "run"]
+        },
+        {
+          "name": "Build release",
+          "cmd": ["zig", "build", "-Doptimize=ReleaseFast"]
+        },
+        {
+          "name": "Build web",
+          "cmd": ["zig", "build", "-Dtarget=wasm32-emscripten"]
+        }
+      ]
+    }
+  ],
+  "settings": {
+    // Match .clang-format (LLVM defaults: 2 spaces, 80 columns).
+    "tab_size": 2,
+    "translate_tabs_to_spaces": true,
+    "rulers": [80],
+    "ensure_newline_at_eof_on_save": true,
+    "trim_trailing_white_space_on_save": "all",
+    "LSP": {
+      "clangd": {
+        "enabled": true,
+        "selector": "source.c | source.c++",
+        "command": ["clangd", "--background-index", "--clang-tidy"],
+        "initializationOptions": {
+          // Only used for files compile_flags.txt does not cover.
+          "fallbackFlags": ["-std=c23", "-Isrc"]
+        }
+      }
+    }
+  }
+}

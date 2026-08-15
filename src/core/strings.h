@@ -1,8 +1,8 @@
 #ifndef CORE_STRINGS_H
 #define CORE_STRINGS_H
 
-#include "./allocator.h"
-#include "./types.h"
+#include "core/allocator.h"
+#include "core/types.h"
 
 typedef struct String {
   Option(Allocator) allocator;
@@ -30,8 +30,10 @@ String string_slice(String src, usize lo, usize hi);
 String string_clone(String str, Allocator allocator);
 bool32 string_is_terminated(String str);
 bool32 string_equal(String s1, String s2);
-bool32 string_to_u32(String str, u32 *out);
+// FIXME(nico): Conversion procedures need to handle overflows gracefully
 bool32 string_to_u16(String str, u16 *out);
+bool32 string_to_u32(String str, u32 *out);
+bool32 string_to_i64(String str, i64 *out);
 
 String_Builder make_builder_from_buf(char *buf, usize cap);
 void builder_reset(String_Builder *b);

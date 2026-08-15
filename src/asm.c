@@ -1,5 +1,7 @@
 #include "asm.h"
 
+#include "core/math.h"
+
 #include <assert.h>
 #include <string.h>
 
@@ -383,8 +385,8 @@ aet_assemble_register_immediate_operation(
   Aet_Register rd = aet_assembly_token_to_register(arg1);
   Aet_Register rs1 = aet_assembly_token_to_register(arg2);
 
-  u16 immediate = 0;
-  if (!string_to_u16(arg3.lexeme, &immediate)) {
+  i64 immediate = 0;
+  if (!string_to_i64(arg3.lexeme, &immediate)) {
     return (Aet_Assembler_Instruction_Result){
       .err = Aet_Assembler_Error_Invalid_Syntax,
     };
@@ -612,9 +614,9 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     case Aet_CPU_Opcode_Sh:
     case Aet_CPU_Opcode_Sw:
     case Aet_CPU_Opcode_Beq: {
-      u32 immediate = (u32)((instr >> 16) & 0xffff);
+      i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
       // FIXME(nico): need to expand the builder
-      builder_write_i32(&builder, (i32)immediate);
+      builder_write_i32(&builder, immediate);
     } break;
     case Aet_CPU_Opcode_Add:
     case Aet_CPU_Opcode_Sub:
