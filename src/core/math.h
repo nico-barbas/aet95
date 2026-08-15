@@ -7,6 +7,7 @@
 // Other math
 //////////////////////////////////
 i32 sign_extend_i32(u32 value, u32 bits);
+usize hash_fnv1a(void *data, usize size);
 
 //////////////////////////////////
 // Generic math

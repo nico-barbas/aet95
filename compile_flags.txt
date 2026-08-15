@@ -3,6 +3,7 @@
 -O0
 -Isrc
 -Izig-pkg/N-V-__8AAPJDTgBMvhz_RoGlqYS1cMahRQ6Q5GVqYKny36gQ
+-Izig-pkg/N-V-__8AAPFuBABIkL_hQBnt6WXcaRM_ZIZEQGvfTnZVGJ0A
 -Izig-pkg/zglfw-0.10.0-dev-zgVDNNu5IQAk-UK7gIg0LWMmMzxj4sK9xCSTisLhjgI1/libs/glfw/include
 -Izig-pkg/N-V-__8AAO3k0AME91yU7p-wkAjsf9Fudl9z8rFKgyS-aTY9/include
 -DDEBUG
@@ -27,3 +28,4 @@
 -Wjump-misses-init
 -Wvla
 -Wstrict-prototypes
+-Wimplicit-fallthrough

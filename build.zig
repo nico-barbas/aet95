@@ -59,7 +59,19 @@ pub fn build(b: *std.Build) void {
 
     const stb_dep = b.dependency("stb", .{});
     exe_mod.addIncludePath(stb_dep.path(""));
-    exe_mod.linkLibrary(stbLibrary(b, target, optimize, stb_dep));
+    exe_mod.linkLibrary(singleHeaderLibrary(b, target, optimize, .{
+        .name = "stb",
+        .dep = stb_dep,
+        .impl = stbImplementation(b),
+    }));
+
+    const cgltf_dep = b.dependency("cgltf", .{});
+    exe_mod.addIncludePath(cgltf_dep.path(""));
+    exe_mod.linkLibrary(singleHeaderLibrary(b, target, optimize, .{
+        .name = "cgltf",
+        .dep = cgltf_dep,
+        .impl = cgltfImplementation(b),
+    }));
 
     const exe = b.addExecutable(.{
         .name = "aet95",
@@ -77,6 +89,8 @@ fn buildWeb(b: *std.Build, optimize: std.builtin.OptimizeMode) void {
     const emsdk = b.lazyDependency("emsdk", .{}) orelse return;
     const stb_dep = b.dependency("stb", .{});
     const stb_impl = stbImplementation(b);
+    const cgltf_dep = b.dependency("cgltf", .{});
+    const cgltf_impl = cgltfImplementation(b);
     const emsdk_root = emsdk.path("").getPath(b);
     const emsdk_script = b.pathJoin(&.{ emsdk_root, "emsdk" });
     const emcc_path = b.pathJoin(&.{ emsdk_root, "upstream", "emscripten", "emcc.py" });
@@ -106,8 +120,10 @@ fn buildWeb(b: *std.Build, optimize: std.builtin.OptimizeMode) void {
     for (c_flags) |flag| emcc.addArg(flag);
     emcc.addArg(b.fmt("-I{s}", .{b.path("src").getPath(b)}));
     emcc.addArg(b.fmt("-I{s}", .{stb_dep.path("").getPath(b)}));
+    emcc.addArg(b.fmt("-I{s}", .{cgltf_dep.path("").getPath(b)}));
     emcc.addFileArg(b.path("src/unity.c"));
     emcc.addFileArg(stb_impl);
+    emcc.addFileArg(cgltf_impl);
     emcc.addArg("-o");
     const web_output = emcc.addOutputFileArg("aet95.html");
 
@@ -299,26 +315,29 @@ const glfw_macos_sources = [_][]const u8{
     "libs/glfw/src/cocoa_monitor.m",
 };
 
-// stb ships as headers only: one translation unit stamps out the implementations.
-// It is not clean under our warning set, so it gets its own flags.
-fn stbLibrary(
+// stb and cgltf ship as headers only: one translation unit per dependency
+// stamps out the implementations. Neither is clean under our warning set, so
+// they get their own flags.
+fn singleHeaderLibrary(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    stb_dep: *std.Build.Dependency,
+    options: struct {
+        name: []const u8,
+        dep: *std.Build.Dependency,
+        impl: std.Build.LazyPath,
+    },
 ) *std.Build.Step.Compile {
-    const impl = stbImplementation(b);
-
     const mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
         .link_libc = true,
         .sanitize_c = .off,
     });
-    mod.addIncludePath(stb_dep.path(""));
-    mod.addCSourceFile(.{ .file = impl, .flags = &.{"-std=c23"} });
+    mod.addIncludePath(options.dep.path(""));
+    mod.addCSourceFile(.{ .file = options.impl, .flags = &.{"-std=c23"} });
 
-    return b.addLibrary(.{ .name = "stb", .root_module = mod });
+    return b.addLibrary(.{ .name = options.name, .root_module = mod });
 }
 
 fn stbImplementation(b: *std.Build) std.Build.LazyPath {
@@ -330,6 +349,17 @@ fn stbImplementation(b: *std.Build) std.Build.LazyPath {
         \\#define STB_TRUETYPE_IMPLEMENTATION
         \\#include "stb_image.h"
         \\#include "stb_truetype.h"
+        \\
+    );
+}
+
+fn cgltfImplementation(b: *std.Build) std.Build.LazyPath {
+    return b.addWriteFiles().add("cgltf_impl.c",
+        \\#ifdef __clang__
+        \\#pragma clang diagnostic ignored "-Weverything"
+        \\#endif
+        \\#define CGLTF_IMPLEMENTATION
+        \\#include "cgltf.h"
         \\
     );
 }

@@ -27,11 +27,23 @@ typedef enum Aet_CPU_Opcode : byte {
   Aet_CPU_Opcode_Sh,
   Aet_CPU_Opcode_Sw,
   Aet_CPU_Opcode_Beq,
+  Aet_CPU_Opcode_Bneq,
+  // NOTE(nico): comparisons are signed by default, the u suffix selects the
+  // unsigned variant
+  Aet_CPU_Opcode_Blt,
+  Aet_CPU_Opcode_Bgeq,
+  Aet_CPU_Opcode_Bltu,
+  Aet_CPU_Opcode_Bgequ,
+  Aet_CPU_Opcode_Jmp,
+  Aet_CPU_Opcode_Call,
+  Aet_CPU_Opcode_Ret,
   Aet_CPU_Opcode_MAX,
 } Aet_CPU_Opcode;
 
 typedef enum Aet_Register : byte {
-  Aet_Register_R0,
+  Aet_Register_Rx1, // return-address
+  Aet_Register_Rx2, // stack pointer
+  Aet_Register_R0,  // general
   Aet_Register_R1,
   Aet_Register_R2,
   Aet_Register_R3,
@@ -45,8 +57,6 @@ typedef enum Aet_Register : byte {
   Aet_Register_R11,
   Aet_Register_R12,
   Aet_Register_R13,
-  Aet_Register_R14,
-  Aet_Register_R15,
   Aet_Register_MAX,
 } Aet_Register;
 
@@ -66,8 +76,6 @@ typedef enum Aet_CPU_Error {
 typedef struct Aet_CPU {
   u32 registers[Aet_Register_MAX];
   u32 pc; // Program counter
-  u32 sp; // Stack pointer
-  u32 fp; // Frame pointer
   Aet_CPU_Flags flags;
   Aet_Program program;
   // TODO(nico): Trap state

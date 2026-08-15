@@ -1,6 +1,7 @@
 #include "hal.h"
 
 #include "core/allocator.h"
+#include "core/math.h"
 
 #include <assert.h>
 
@@ -12,14 +13,42 @@ Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu) {
 Aet_CPU_Error aet_cpu_load_program(Aet_CPU *cpu, Aet_Program program) {
   cpu->program = program;
   cpu->pc = 0;
-  cpu->sp = 0;
-  cpu->fp = 0;
 
   return Aet_CPU_Error_None;
 }
 
+static bool32 aet_cpu_branch_to(Aet_CPU *cpu, u32 *next_pc, i32 offset) {
+  *next_pc = cpu->pc + (u32)offset;
+  return *next_pc < cpu->program.len;
+}
+
+static bool32 aet_cpu_compare_registers(
+    Aet_CPU *cpu, Aet_Register lhs, Aet_Register rhs, Aet_CPU_Opcode opcode
+) {
+  u32 a = cpu->registers[lhs];
+  u32 b = cpu->registers[rhs];
+  switch (opcode) {
+  case Aet_CPU_Opcode_Beq:
+    return a == b;
+  case Aet_CPU_Opcode_Bneq:
+    return a != b;
+  case Aet_CPU_Opcode_Blt:
+    return (i32)a < (i32)b;
+  case Aet_CPU_Opcode_Bgeq:
+    return (i32)a >= (i32)b;
+  case Aet_CPU_Opcode_Bltu:
+    return a == b;
+  case Aet_CPU_Opcode_Bgequ:
+    return a == b;
+  default:
+    assert(false);
+    return false;
+  }
+}
+
 Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
   usize cycle_spent = 0;
+  Aet_CPU_Error err = Aet_CPU_Error_None;
 
   while (cycle_spent < budget) {
     if (cpu->pc >= cpu->program.len) {
@@ -27,6 +56,7 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
     }
 
     u32 instr = array_get(cpu->program, cpu->pc);
+    u32 next_pc = cpu->pc + 1;
 
     // TODO(nico): Need to encode the different instructions
     Aet_CPU_Opcode opcode = (Aet_CPU_Opcode)(instr & 0xff);
@@ -124,22 +154,58 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
           aet_ram_write_u32(ram, addr, cpu->registers[rd]) == Aet_RAM_Error_None
       );
     } break;
-    case Aet_CPU_Opcode_Beq: {
-      rs1 = rd;
-      Aet_Register rs2 = rs1;
-      i32 offset = (i32)((instr >> 16) & 0xffff);
+    case Aet_CPU_Opcode_Beq:
+    case Aet_CPU_Opcode_Bneq:
+    case Aet_CPU_Opcode_Blt:
+    case Aet_CPU_Opcode_Bgeq:
+    case Aet_CPU_Opcode_Bltu:
+    case Aet_CPU_Opcode_Bgequ: {
+      Aet_Register lhs = rd;
+      Aet_Register rhs = rs1;
+      i32 offset = sign_extend_i32((instr >> 16) & 0xffff, 16);
 
-      cpu->pc = rs1 == rs2 ? (u32)((i32)cpu->pc + offset) : 0;
+      if (aet_cpu_compare_registers(cpu, lhs, rhs, opcode)) {
+        if (!aet_cpu_branch_to(cpu, &next_pc, offset)) {
+          err = Aet_CPU_Error_Trap;
+          goto exit;
+        }
+      }
+    } break;
+    case Aet_CPU_Opcode_Jmp: {
+      // The total offset possible is held in 24 bits
+      i32 offset = sign_extend_i32(instr >> 8, 24);
+      if (!aet_cpu_branch_to(cpu, &next_pc, offset)) {
+        err = Aet_CPU_Error_Trap;
+        goto exit;
+      }
+    } break;
+    case Aet_CPU_Opcode_Call: {
+      i32 offset = sign_extend_i32(instr >> 8, 24);
+      cpu->registers[Aet_Register_Rx1] = next_pc;
+      if (!aet_cpu_branch_to(cpu, &next_pc, offset)) {
+        err = Aet_CPU_Error_Trap;
+        goto exit;
+      }
+    } break;
+    case Aet_CPU_Opcode_Ret: {
+      if (cpu->registers[Aet_Register_Rx1] >= cpu->program.len) {
+        err = Aet_CPU_Error_Trap;
+        goto exit;
+      }
+      next_pc = cpu->registers[Aet_Register_Rx1];
     } break;
     case Aet_CPU_Opcode_MAX:
-      assert(false);
-      break;
+    default:
+      err = Aet_CPU_Error_Trap;
+      goto exit;
     }
 
-    cpu->pc += 1;
+    cpu->pc = next_pc;
+    cycle_spent += 1;
   }
 
-  return Aet_CPU_Error_None;
+exit:
+  return err;
 }
 
 Aet_RAM_Error aet_ram_init(Aet_RAM *ram, Allocator allocator) {

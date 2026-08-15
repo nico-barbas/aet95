@@ -1,6 +1,22 @@
-# Fantasy CPU / OS
+# Project Aet95
 
-A small fantasy computer designed primarily as a learning project for compiler backends, code generation, JIT compilation, and low-level runtime architecture.
+This project's goal is to make a programming game. The player is responsible of a fleet of machines in an alien planet (Mars-like for now, expansion angle if useful).
+
+They need to harvest resources, similarly to factory games. As a comparison the hook of factorio is "the factory must grow", here it would be "the fleet must grow". The difference is there is no direct control.
+
+Each machine in the fleet will embed a aet-95 cpu following a simple but powerful ISA, limited resources, selected devices and a running program.
+
+The player controls the design (combination of hardware and software). Examples (not all might make it, especially the duplication machine which might break a lot of things if not done carefully):
+
+- A duplication machine -> more storage (physical and memory) and simple duplication program
+- A networking machine -> high radio range, no motors, store data from other machines and broadcast information
+- An explorer in early game -> low sensors, high ram, record map and useful information found
+
+Player can poke devices via a MMIO. The fun of the game is the open-endedness of the design. Create specialized machines, find clever tricks, exploit cpu bugs (could even be intentional with some sort of software release system)
+
+The meta-progression will be unlocking better tech. A compiler, an optimizer, more registers, etc.. One apprehension I have is that the game would be too hard without a high-level programming language from the get-go. This could be a hardmode (start with no compiler, first few hours are only aet95 assembly) and even honormode (reach goal with never unlocking the compiler).
+
+There will be a debugger for the player to use.
 
 ## Motivation and Goals
 
@@ -17,7 +33,7 @@ Fantasy CPU machine code
       ↓
 CPU emulator
       ↓
-Fantasy OS
+Fleet/Factory game
 ```
 
 The low-level environment will include:
@@ -26,7 +42,7 @@ The low-level environment will include:
 - A custom machine-code instruction format
 - An assembler
 - A disassembler
-- 512 MiB of byte-addressable RAM
+- byte-addressable RAM
 - A simple ABI and calling convention
 - Instruction-budgeted execution so the virtual CPU can coexist with the host application's main loop
 
@@ -42,8 +58,6 @@ The custom language will eventually target this CPU directly. The compiler side 
 - Coroutine lowering
 
 A fantasy OS will sit on top of the CPU and provide the runtime environment for programs.
-
-The machine is intentionally kept simpler than real hardware. In particular, there is currently no plan to model MMIO, ROM mappings, or additional hardware devices. Host interaction can instead be exposed through a small trap/syscall-style interface where necessary.
 
 ## CPU Direction
 

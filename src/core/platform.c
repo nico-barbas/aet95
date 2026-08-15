@@ -7,7 +7,18 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <string.h>
+
+/*
+  FIXME(nico):
+  - Render-target capacity assertion is reversed.
+  - Bind-group handles and derived texture views leak.
+  - Depth24Plus has an outdated enum value.
+  - Buffer slices retain pointers to movable wrappers.
+  - Texture channel accounting is incorrect after forced RGBA decoding.
+  - Pipeline entry points and shader visibility are hardcoded.
+  - Several partial failures leak resources.
+  - GPU parent resources are released before children.
+*/
 
 #if defined(PLATFORM_WEB)
 #include <GLFW/glfw3.h>
@@ -41,6 +52,25 @@ static WGPUCallbackMode callback_mode = WGPUCallbackMode_WaitAnyOnly;
 #define FRAME_ARENA_SIZE (50 * MEGABYTE)
 
 static App *_app = nullptr;
+
+static void platform_assert_ok(Logger *logger) {
+#if defined(DEBUG)
+  const char *msg = nullptr;
+  i32 err = glfwGetError(&msg);
+  if (err != GLFW_NO_ERROR) {
+    log_error(logger, msg);
+    assert(false);
+  }
+#endif
+}
+
+static u64 platform_get_timer_now_ns(App *app) {
+#if defined(PLATFORM_WEB)
+  return (u64)(emscripten_get_now() * 1000000.0);
+#else
+  return (glfwGetTimerValue() * 1000000000ull) / app->time_frequency;
+#endif
+}
 
 static void gpu_adapter_callback(
     WGPURequestAdapterStatus status,
@@ -99,12 +129,50 @@ bool32 init_app(App_Create_Info *info, Allocator allocator) {
   );
   app->frame_allocator = arena_allocator(&app->frame_arena);
 
+#if defined(_WIN32)
+  if (info->window_backend != App_Window_Backend_Auto) {
+    log_error(
+        &app->logger,
+        "Invalid Window backend selected. On Windows, only "
+        "App_Window_Backend_Auto is supported"
+    );
+    return false;
+  }
+
+  glfwInitHint(GLFW_PLATFORM, GLFW_ANY_PLATFORM);
+#elif defined(__linux__)
+  // FIXME(nico): work on the logger to have string parsing
+  // The string library already handle that so just use this
+  switch (info->window_backend) {
+  case App_Window_Backend_Auto:
+    log_debug(&app->logger, "Window backend auto selected");
+    glfwInitHint(GLFW_PLATFORM, GLFW_ANY_PLATFORM);
+    break;
+  case App_Window_Backend_X11:
+    log_debug(&app->logger, "Window backend x11 selected");
+    glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+    break;
+  case App_Window_Backend_Wayland:
+    log_debug(&app->logger, "Window backend wayland selected");
+    glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
+    break;
+  default:
+    log_error(&app->logger, "Invalid Window backend selected");
+    return false;
+  }
+#endif
+
+  platform_assert_ok(&app->logger);
+
   if (!glfwInit()) {
     log_error(&app->logger, "Failed to initialize glfw");
     return false;
   }
 
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+  app->window_backend = info->window_backend;
+  app->gpu_backend = info->gpu_backend;
 
   app->window_handle = glfwCreateWindow(
       info->window_width,
@@ -330,12 +398,13 @@ bool32 init_app(App_Create_Info *info, Allocator allocator) {
       }
   );
 
-  // TODO(nico): handle all the callbacks
-
   app->running = true;
+
+#if !defined(PLATFORM_WEB)
   app->time_frequency = glfwGetTimerFrequency();
-  app->current_time_ns =
-      (glfwGetTimerValue() * 1000000000ull) / app->time_frequency;
+#endif
+
+  app->current_time_ns = platform_get_timer_now_ns(app);
   app->last_time = glfwGetTime();
 
   f64 mx = 0., my = 0.;
@@ -379,10 +448,8 @@ bool32 app_update(App *app) {
   }
 
   glfwPollEvents();
-  u64 current_timer_value = glfwGetTimerValue();
   app->last_time_ns = app->current_time_ns;
-  app->current_time_ns =
-      (current_timer_value * 1000000000ull) / app->time_frequency;
+  app->current_time_ns = platform_get_timer_now_ns(app);
 
   f64 current_time = glfwGetTime();
   app->elapsed_time = current_time - app->last_time;
@@ -413,7 +480,10 @@ void app_end_frame(App *app) {
   wgpuCommandBufferRelease(cmd_buf);
   wgpuCommandEncoderRelease(app->gpu_current_command_encoder);
 
+#if !defined(PLATFORM_WEB)
   wgpuSurfacePresent(app->gpu_surface);
+#endif
+
   wgpuTextureViewRelease(app->gpu_default_frame_texture_view);
   wgpuTextureRelease(app->gpu_default_surface_texture);
 }
@@ -607,7 +677,7 @@ bool32 gpu_buffer_memory_is_valid(GPU_Buffer_Memory memory) {
 }
 
 void gpu_buffer_reset(GPU_Buffer *buffer) {
-  buffer->usage = 0;
+  buffer->used = 0;
 }
 
 GPU_Buffer_Memory gpu_buffer_alloc(GPU_Buffer *buffer, usize size) {
@@ -872,7 +942,7 @@ make_gpu_pipeline(GPU_Pipeline_Create_Info *info, Allocator allocator) {
 
   switch (info->shader_source.kind) {
   case GPU_Shader_Source_File: {
-    FILE *f = fopen(info->shader_source.file_path.data, "rb");
+    FILE *f = fopen(info->shader_source.file_path.data, "rbe");
     assert(f != nullptr);
     fseek(f, 0, SEEK_END);
     usize sz = (usize)ftell(f);

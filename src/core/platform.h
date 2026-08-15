@@ -1,10 +1,11 @@
-#ifndef CORE_PLATEFORM_H
-#define CORE_PLATEFORM_H
+#ifndef CORE_APP_H
+#define CORE_APP_H
 
 #include "core/array.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/strings.h"
+#include "core/types.h"
 
 #define APP_KEYBOARD_KEY_CAP 512
 #define APP_MOUSE_BUTTON_CAP 12
@@ -31,10 +32,24 @@ typedef struct WGPUSamplerImpl *WGPUSampler;
 /////////////////////////////
 // App
 /////////////////////////////
+typedef enum App_Window_Backend {
+  App_Window_Backend_Auto,
+  App_Window_Backend_X11,
+  App_Window_Backend_Wayland,
+} App_Window_Backend;
+
+typedef enum App_GPU_Backend {
+  App_GPU_Backend_Auto,
+  App_GPU_Backend_Vulkan,
+  APP_GPU_Backend_DX12,
+} App_GPU_Backend;
+
 typedef struct App {
   Logger logger;
 
   GLFWwindow *window_handle;
+  App_Window_Backend window_backend;
+  App_GPU_Backend gpu_backend;
   i32 window_width;
   i32 window_height;
   String window_title;
@@ -80,6 +95,9 @@ typedef struct App_Create_Info {
   i32 window_width;
   i32 window_height;
   String window_title;
+
+  App_Window_Backend window_backend;
+  App_GPU_Backend gpu_backend;
 
   Logger logger;
 } App_Create_Info;

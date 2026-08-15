@@ -2,14 +2,14 @@
 
 #include "stdio.h"
 
-const char *level_str[Log_Level_MAX] = {
+static const char *level_str[Log_Level_MAX] = {
   [Log_Level_Debug] = "[DEBUG]",
   [Log_Level_Info] = "[INFO]",
   [Log_Level_Warn] = "[WARN]",
   [Log_Level_Error] = "[ERROR]",
 };
 
-void console_log(Log_Level level, const char *msg) {
+static void console_log(Log_Level level, const char *msg) {
   printf("%s: %s\n", level_str[level], msg);
 }
 

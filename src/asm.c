@@ -26,7 +26,15 @@
   X(Sb, "storeb")                                                              \
   X(Sh, "storeh")                                                              \
   X(Sw, "storew")                                                              \
-  X(Beq, "brancheq")
+  X(Beq, "beq")                                                                \
+  X(Bneq, "bneq")                                                              \
+  X(Blt, "blt")                                                                \
+  X(Bgeq, "bgeq")                                                              \
+  X(Bltu, "bltu")                                                              \
+  X(Bgequ, "bgequ")                                                            \
+  X(Jmp, "jump")                                                               \
+  X(Call, "call")                                                              \
+  X(Ret, "ret")
 
 typedef enum Aet_Assembly_Token_Kind {
   Aet_Assembly_Token_Kind_EOF,
@@ -38,6 +46,8 @@ typedef enum Aet_Assembly_Token_Kind {
   // Keywords
   // Registers
   Aet_Assembly_Token_Kind_register_start_,
+  Aet_Assembly_Token_Kind_Rx1,
+  Aet_Assembly_Token_Kind_Rx2,
   Aet_Assembly_Token_Kind_R0,
   Aet_Assembly_Token_Kind_R1,
   Aet_Assembly_Token_Kind_R2,
@@ -52,8 +62,6 @@ typedef enum Aet_Assembly_Token_Kind {
   Aet_Assembly_Token_Kind_R11,
   Aet_Assembly_Token_Kind_R12,
   Aet_Assembly_Token_Kind_R13,
-  Aet_Assembly_Token_Kind_R14,
-  Aet_Assembly_Token_Kind_R15,
   Aet_Assembly_Token_Kind_register_end_,
   Aet_Assembly_Token_Kind_instruction_start_,
 #define X(name, text) Aet_Assembly_Token_Kind_##name,
@@ -204,6 +212,17 @@ static Aet_Assembly_Keyword_Option aet_assembler_match_register(String str) {
   if (str.len < 2 || str.len > 3 ||
       (str.data[0] != 'r' && str.data[0] != 'R')) {
     return none(Aet_Assembly_Keyword_Option);
+  }
+
+  if (str.data[1] == 'x') {
+    switch (str.data[2]) {
+    case '1':
+      return some(Aet_Assembly_Keyword_Option, Aet_Assembly_Token_Kind_Rx1);
+    case '2':
+      return some(Aet_Assembly_Keyword_Option, Aet_Assembly_Token_Kind_Rx2);
+    default:
+      return none(Aet_Assembly_Keyword_Option);
+    }
   }
 
   u32 n = 0;
@@ -398,6 +417,27 @@ aet_assemble_register_immediate_operation(
   };
 }
 
+static Aet_Assembler_Instruction_Result
+aet_assemble_immediate_operation(Aet_Assembler *assembler, Aet_CPU_Opcode op) {
+  Aet_Assembly_Token arg = aet_assembler_consume_token(assembler);
+  if (arg.kind != Aet_Assembly_Token_Kind_Number_Literal) {
+    return (Aet_Assembler_Instruction_Result){
+      .err = Aet_Assembler_Error_Invalid_Syntax
+    };
+  }
+
+  i64 immediate = 0;
+  if (!string_to_i64(arg.lexeme, &immediate)) {
+    return (Aet_Assembler_Instruction_Result){
+      .err = Aet_Assembler_Error_Invalid_Syntax,
+    };
+  }
+
+  return (Aet_Assembler_Instruction_Result){
+    .instr = (u32)(op) | ((u32)immediate << 8)
+  };
+}
+
 Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
   // NOTE(nico): stupid temporary fixed buffer
   static u32 output[4096] = {0};
@@ -508,6 +548,46 @@ Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
       instr_result = aet_assemble_register_immediate_operation(
           &assembler, Aet_CPU_Opcode_Beq
       );
+      break;
+    case Aet_Assembly_Token_Kind_Bneq:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Bneq
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Blt:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Blt
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Bgeq:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Bgeq
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Bltu:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Bltu
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Bgequ:
+      instr_result = aet_assemble_register_immediate_operation(
+          &assembler, Aet_CPU_Opcode_Bgequ
+      );
+      break;
+    case Aet_Assembly_Token_Kind_Jmp:
+      instr_result =
+          aet_assemble_immediate_operation(&assembler, Aet_CPU_Opcode_Jmp);
+      break;
+    case Aet_Assembly_Token_Kind_Call:
+      instr_result =
+          aet_assemble_immediate_operation(&assembler, Aet_CPU_Opcode_Call);
+      break;
+    case Aet_Assembly_Token_Kind_Ret:
+      instr_result = (Aet_Assembler_Instruction_Result){
+        .err = Aet_Assembler_Error_None,
+        .instr = (u32)(Aet_CPU_Opcode_Ret),
+      };
+      break;
     default:
       break;
     }
@@ -542,25 +622,23 @@ Aet_Disassembler_Result
 aet_disassemble(Aet_Program program, Allocator allocator) {
   static char buf[4096] = {0};
   static const char *opcode_lookup[Aet_CPU_Opcode_MAX] = {
-    [Aet_CPU_Opcode_Addi] = "addi",
-    [Aet_CPU_Opcode_Add] = "add",
-    [Aet_CPU_Opcode_Sub] = "sub",
-    [Aet_CPU_Opcode_Mul] = "mul",
-    [Aet_CPU_Opcode_Div] = "div",
-    [Aet_CPU_Opcode_And] = "and",
-    [Aet_CPU_Opcode_Or] = "or",
-    [Aet_CPU_Opcode_Xor] = "xor",
-    [Aet_CPU_Opcode_Shl] = "shiftl",
-    [Aet_CPU_Opcode_Shr] = "shiftr",
-    [Aet_CPU_Opcode_Lb] = "loadb",
-    [Aet_CPU_Opcode_Lh] = "laodh",
-    [Aet_CPU_Opcode_Lw] = "loadw",
-    [Aet_CPU_Opcode_Sb] = "storeb",
-    [Aet_CPU_Opcode_Sh] = "storeh",
-    [Aet_CPU_Opcode_Sw] = "storew",
-    [Aet_CPU_Opcode_Beq] = "brancheq",
+    [Aet_CPU_Opcode_Addi] = "addi",  [Aet_CPU_Opcode_Add] = "add",
+    [Aet_CPU_Opcode_Sub] = "sub",    [Aet_CPU_Opcode_Mul] = "mul",
+    [Aet_CPU_Opcode_Div] = "div",    [Aet_CPU_Opcode_And] = "and",
+    [Aet_CPU_Opcode_Or] = "or",      [Aet_CPU_Opcode_Xor] = "xor",
+    [Aet_CPU_Opcode_Shl] = "shiftl", [Aet_CPU_Opcode_Shr] = "shiftr",
+    [Aet_CPU_Opcode_Lb] = "loadb",   [Aet_CPU_Opcode_Lh] = "laodh",
+    [Aet_CPU_Opcode_Lw] = "loadw",   [Aet_CPU_Opcode_Sb] = "storeb",
+    [Aet_CPU_Opcode_Sh] = "storeh",  [Aet_CPU_Opcode_Sw] = "storew",
+    [Aet_CPU_Opcode_Beq] = "beq",    [Aet_CPU_Opcode_Bneq] = "bneq",
+    [Aet_CPU_Opcode_Blt] = "blt",    [Aet_CPU_Opcode_Bgeq] = "bgeq",
+    [Aet_CPU_Opcode_Bltu] = "bltu",  [Aet_CPU_Opcode_Bgequ] = "bgequ",
+    [Aet_CPU_Opcode_Jmp] = "jump",   [Aet_CPU_Opcode_Call] = "call",
+    [Aet_CPU_Opcode_Ret] = "ret",
   };
   static const char *register_lookup[Aet_Register_MAX] = {
+    [Aet_Register_Rx1] = "rx1",
+    [Aet_Register_Rx2] = "rx2",
     [Aet_Register_R0] = "r0",
     [Aet_Register_R1] = "r1",
     [Aet_Register_R2] = "r2",
@@ -575,8 +653,6 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     [Aet_Register_R11] = "r11",
     [Aet_Register_R12] = "r12",
     [Aet_Register_R13] = "r13",
-    [Aet_Register_R14] = "r14",
-    [Aet_Register_R15] = "r15",
   };
 
   if (program.len == 0) {
@@ -594,16 +670,6 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     current += 1;
 
     Aet_CPU_Opcode opcode = (Aet_CPU_Opcode)(instr & 0xff);
-    Aet_Register rd = (Aet_Register)((instr >> 8) & 0x0f);
-    Aet_Register rs1 = (Aet_Register)((instr >> 12) & 0x0f);
-
-    builder_write(
-        &builder,
-        "%ss %ss, %ss, ",
-        opcode_lookup[opcode],
-        register_lookup[rd],
-        register_lookup[rs1]
-    );
 
     switch (opcode) {
     case Aet_CPU_Opcode_Addi:
@@ -613,10 +679,24 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     case Aet_CPU_Opcode_Sb:
     case Aet_CPU_Opcode_Sh:
     case Aet_CPU_Opcode_Sw:
-    case Aet_CPU_Opcode_Beq: {
+    case Aet_CPU_Opcode_Beq:
+    case Aet_CPU_Opcode_Bneq:
+    case Aet_CPU_Opcode_Blt:
+    case Aet_CPU_Opcode_Bgeq:
+    case Aet_CPU_Opcode_Bltu:
+    case Aet_CPU_Opcode_Bgequ: {
+      Aet_Register rd = (Aet_Register)((instr >> 8) & 0x0f);
+      Aet_Register rs1 = (Aet_Register)((instr >> 12) & 0x0f);
       i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
-      // FIXME(nico): need to expand the builder
-      builder_write_i32(&builder, immediate);
+
+      builder_write(
+          &builder,
+          "%ss %ss, %ss, %d",
+          opcode_lookup[opcode],
+          register_lookup[rd],
+          register_lookup[rs1],
+          immediate
+      );
     } break;
     case Aet_CPU_Opcode_Add:
     case Aet_CPU_Opcode_Sub:
@@ -627,10 +707,30 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     case Aet_CPU_Opcode_Xor:
     case Aet_CPU_Opcode_Shl:
     case Aet_CPU_Opcode_Shr: {
+      Aet_Register rd = (Aet_Register)((instr >> 8) & 0x0f);
+      Aet_Register rs1 = (Aet_Register)((instr >> 12) & 0x0f);
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
-      builder_write_string(&builder, from_c_str(register_lookup[rs2]));
+
+      builder_write(
+          &builder,
+          "%ss %ss, %ss, %ss",
+          opcode_lookup[opcode],
+          register_lookup[rd],
+          register_lookup[rs1],
+          register_lookup[rs2]
+      );
     } break;
+    case Aet_CPU_Opcode_Jmp:
+    case Aet_CPU_Opcode_Call:
+      i32 offset = sign_extend_i32(instr >> 8, 24);
+
+      builder_write(&builder, "%ss %d", opcode_lookup[opcode], offset);
+      break;
+    case Aet_CPU_Opcode_Ret:
+      builder_write(&builder, "%ss", opcode_lookup[opcode]);
+      break;
     case Aet_CPU_Opcode_MAX:
+      // FIXME(nico): need a recovery path
       assert(false);
       break;
     }
