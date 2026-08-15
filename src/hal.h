@@ -41,6 +41,7 @@ typedef enum Aet_CPU_Opcode : byte {
 } Aet_CPU_Opcode;
 
 typedef enum Aet_Register : byte {
+  Aet_Register_Rx0, // zero
   Aet_Register_Rx1, // return-address
   Aet_Register_Rx2, // stack pointer
   Aet_Register_R0,  // general
