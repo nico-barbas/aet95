@@ -27,6 +27,9 @@ static bool32 aet_cpu_compare_registers(
 ) {
   u32 a = cpu->registers[lhs];
   u32 b = cpu->registers[rhs];
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch-enum"
   switch (opcode) {
   case Aet_CPU_Opcode_Beq:
     return a == b;
@@ -44,6 +47,7 @@ static bool32 aet_cpu_compare_registers(
     assert(false);
     return false;
   }
+#pragma clang diagnostic pop
 }
 
 Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {

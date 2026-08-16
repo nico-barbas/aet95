@@ -721,11 +721,11 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
       );
     } break;
     case Aet_CPU_Opcode_Jmp:
-    case Aet_CPU_Opcode_Call:
+    case Aet_CPU_Opcode_Call: {
       i32 offset = sign_extend_i32(instr >> 8, 24);
 
       builder_write(&builder, "%ss %d", opcode_lookup[opcode], offset);
-      break;
+    } break;
     case Aet_CPU_Opcode_Ret:
       builder_write(&builder, "%ss", opcode_lookup[opcode]);
       break;
