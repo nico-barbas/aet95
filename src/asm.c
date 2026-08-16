@@ -622,21 +622,12 @@ Aet_Disassembler_Result
 aet_disassemble(Aet_Program program, Allocator allocator) {
   static char buf[4096] = {0};
   static const char *opcode_lookup[Aet_CPU_Opcode_MAX] = {
-    [Aet_CPU_Opcode_Addi] = "addi",  [Aet_CPU_Opcode_Add] = "add",
-    [Aet_CPU_Opcode_Sub] = "sub",    [Aet_CPU_Opcode_Mul] = "mul",
-    [Aet_CPU_Opcode_Div] = "div",    [Aet_CPU_Opcode_And] = "and",
-    [Aet_CPU_Opcode_Or] = "or",      [Aet_CPU_Opcode_Xor] = "xor",
-    [Aet_CPU_Opcode_Shl] = "shiftl", [Aet_CPU_Opcode_Shr] = "shiftr",
-    [Aet_CPU_Opcode_Lb] = "loadb",   [Aet_CPU_Opcode_Lh] = "laodh",
-    [Aet_CPU_Opcode_Lw] = "loadw",   [Aet_CPU_Opcode_Sb] = "storeb",
-    [Aet_CPU_Opcode_Sh] = "storeh",  [Aet_CPU_Opcode_Sw] = "storew",
-    [Aet_CPU_Opcode_Beq] = "beq",    [Aet_CPU_Opcode_Bneq] = "bneq",
-    [Aet_CPU_Opcode_Blt] = "blt",    [Aet_CPU_Opcode_Bgeq] = "bgeq",
-    [Aet_CPU_Opcode_Bltu] = "bltu",  [Aet_CPU_Opcode_Bgequ] = "bgequ",
-    [Aet_CPU_Opcode_Jmp] = "jump",   [Aet_CPU_Opcode_Call] = "call",
-    [Aet_CPU_Opcode_Ret] = "ret",
+#define X(name, text) [Aet_CPU_Opcode_##name] = text,
+    AET_INSTRUCTIONS(X)
+#undef X
   };
   static const char *register_lookup[Aet_Register_MAX] = {
+    [Aet_Register_Rx0] = "rx0",
     [Aet_Register_Rx1] = "rx1",
     [Aet_Register_Rx2] = "rx2",
     [Aet_Register_R0] = "r0",
