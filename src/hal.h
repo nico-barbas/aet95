@@ -57,7 +57,6 @@ typedef enum Aet_Register : byte {
   Aet_Register_R10,
   Aet_Register_R11,
   Aet_Register_R12,
-  Aet_Register_R13,
   Aet_Register_MAX,
 } Aet_Register;
 
@@ -71,15 +70,30 @@ typedef enum Aet_CPU_Error {
   Aet_CPU_Error_None,
   Aet_CPU_Error_Failed_To_Initialize,
   Aet_CPU_Error_Budget_Spent,
-  Aet_CPU_Error_Trap,
+  Aet_CPU_Error_Fault,
 } Aet_CPU_Error;
+
+typedef enum Aet_CPU_Fault {
+  Aet_CPU_Fault_None,
+  Aet_CPU_Fault_Invalid_Opcode,
+  Aet_CPU_Fault_Invalid_Next_Program_Counter,
+  Aet_CPU_Fault_Invalid_Memory_Access,
+  Aet_CPU_Fault_CPU_Divide_By_Zero,
+  // Maybe misaligned access fault, depending on the strictness of the ISA and
+  // VM
+} Aet_CPU_Fault;
+
+typedef enum Aet_CPU_Trap {
+  Aet_CPU_Trap_None,
+} Aet_CPU_Trap;
 
 typedef struct Aet_CPU {
   u32 registers[Aet_Register_MAX];
   u32 pc; // Program counter
   Aet_CPU_Flags flags;
+  Aet_CPU_Fault fault;
+  Aet_CPU_Trap trap;
   Aet_Program program;
-  // TODO(nico): Trap state
 } Aet_CPU;
 
 typedef enum Aet_RAM_Error {

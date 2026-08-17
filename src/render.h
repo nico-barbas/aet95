@@ -47,7 +47,11 @@ typedef struct Material {
   GPU_Bind_Group bind_group;
 } Material;
 
-typedef Result(Material) Material_Create_Result;
+typedef enum Material_Create_Error {
+  Material_Create_Error_None,
+} Material_Create_Error;
+
+typedef Result(Material, Material_Create_Error) Material_Create_Result;
 typedef Option(Material) Material_Option;
 
 typedef struct Mesh_Primitive {
@@ -78,7 +82,13 @@ typedef struct Mesh_Primitive_Draw_Info {
   Color color;
 } Mesh_Primitive_Draw_Info;
 
-typedef Result(Mesh_Primitive) Mesh_Primitive_Create_Result;
+typedef enum Mesh_Primitive_Create_Error {
+  Mesh_Primitive_Create_Error_None,
+} Mesh_Primitive_Create_Error;
+
+typedef Result(
+    Mesh_Primitive, Mesh_Primitive_Create_Error
+) Mesh_Primitive_Create_Result;
 
 typedef struct Model {
   Mesh_Primitive primitives[MESH_PRIMITIVE_CAP];
@@ -98,7 +108,12 @@ typedef struct Model_Draw_Info {
   Color color;
 } Model_Draw_Info;
 
-typedef Result(Model) Model_Create_Result;
+typedef enum Model_Create_Error {
+  Model_Create_Error_None,
+  Model_Create_Error_Emtpy_GLTF_File,
+} Model_Create_Error;
+
+typedef Result(Model, Model_Create_Error) Model_Create_Result;
 
 typedef struct Renderer {
   GPU_Texture depth_texture; // FIXME(nico): we'll use a offscreen target, so

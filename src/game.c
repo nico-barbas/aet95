@@ -47,7 +47,7 @@ void init_game(void) {
   );
   assert(frame_mem.err == Allocation_Error_None);
 
-  init_arena(&_game.frame_arena, frame_mem.allocation, 0);
+  init_arena(&_game.frame_arena, frame_mem.allocation, FRAME_ALLOCATOR_SIZE);
   _game.frame_allocator = arena_allocator(&_game.frame_arena);
 
   App_Create_Info info = {
@@ -225,11 +225,11 @@ bool32 entity_handle_eq(void *h1, void *h2) {
   return _h1->id == _h2->id && _h1->generation == _h2->generation;
 }
 
-usize entity_handle_hash(void *key, usize size) {
+u64 entity_handle_hash(void *key, usize size) {
   (void)size;
   Entity_Handle *h = (Entity_Handle *)key;
 
-  usize hash = hash_fnv1a(&h->generation, sizeof(h->generation));
+  u64 hash = hash_fnv1a(&h->generation, sizeof(h->generation));
   hash ^= hash_fnv1a(&h->id, sizeof(h->id));
   return hash;
 }

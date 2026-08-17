@@ -5,6 +5,10 @@ typedef char bool8;
 typedef unsigned int bool32;
 
 typedef void *rawptr;
+typedef __UINTPTR_TYPE__ uintptr;
+static_assert(
+    sizeof(uintptr) == sizeof(void *), "uintptr must be pointer-sized"
+);
 
 typedef unsigned char byte;
 typedef unsigned char u8;
@@ -18,7 +22,8 @@ typedef long long int i64;
 typedef float f32;
 typedef double f64;
 
-typedef unsigned long long int usize;
+typedef __SIZE_TYPE__ usize;
+static_assert(sizeof(usize) == sizeof(void *), "usize must be pointer-sized");
 
 #define countof(array) (sizeof(array) / sizeof((array)[0]))
 
@@ -31,12 +36,15 @@ typedef unsigned long long int usize;
 #define some(T, val) ((T){.some = true, .value = (val)})
 #define none(T) ((T){.some = false})
 
-#define Result(type)                                                           \
+#define Result(T, E)                                                           \
   struct {                                                                     \
     bool32 ok;                                                                 \
-    type value;                                                                \
+    union {                                                                    \
+      T value;                                                                 \
+      E error;                                                                 \
+    };                                                                         \
   }
 #define ok(T, val) ((T){.ok = true, .value = (val)})
-#define err(T) ((T){.ok = false})
+#define err(T, err) ((T){.ok = false, .error = (err)})
 
 #endif

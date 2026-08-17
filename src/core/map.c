@@ -108,8 +108,8 @@ Open_Map open_map_ensure_cap(Open_Map map, usize item_count) {
 bool32 open_map_insert_kv(Open_Map map, void *key, void *value) {
   Open_Map_Header *header = open_map_header(map);
 
-  usize hash = header->hash(key, header->key_size);
-  usize index = hash % header->cap;
+  u64 hash = header->hash(key, header->key_size);
+  usize index = (usize)(hash % header->cap);
 
   usize starting_index = index;
   do {
@@ -137,8 +137,8 @@ bool32 open_map_insert_kv(Open_Map map, void *key, void *value) {
 void *internal_open_map_get(Open_Map map, void *key) {
   Open_Map_Header *header = open_map_header(map);
 
-  usize hash = header->hash(key, header->key_size);
-  usize index = hash % header->cap;
+  u64 hash = header->hash(key, header->key_size);
+  usize index = (usize)(hash % header->cap);
 
   usize starting_index = index;
   do {
@@ -202,8 +202,8 @@ void *open_map_next(Open_Map_Iterator *it) {
 bool32 open_map_remove_raw(Open_Map map, void *key) {
   Open_Map_Header *header = open_map_header(map);
 
-  usize hash = header->hash(key, header->key_size);
-  usize index = hash % header->cap;
+  u64 hash = header->hash(key, header->key_size);
+  usize index = (usize)(hash % header->cap);
 
   usize starting_index = index;
 
@@ -233,7 +233,7 @@ bool32 open_map_remove_raw(Open_Map map, void *key) {
 //////////////////////////////
 // Provided defaults
 //////////////////////////////
-usize open_map_u32_hash(void *key, usize key_size) {
+u64 open_map_u32_hash(void *key, usize key_size) {
   (void)key_size;
   return hash_fnv1a(key, sizeof(u32));
 }

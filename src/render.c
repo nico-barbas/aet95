@@ -478,7 +478,7 @@ Model_Create_Result model_load_gltf_from_file(
   cgltf_data *data = (cgltf_data *)info->gltf_data;
 
   if (data->nodes_count == 0) {
-    return err(Model_Create_Result);
+    return err(Model_Create_Result, Model_Create_Error_Emtpy_GLTF_File);
   }
 
   Model model = {0};

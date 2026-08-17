@@ -26,3 +26,7 @@ Early game machines might have a few Kib of ram and very low clock-speed.
 
 - Fixed terrain with resources being physical objects like Warcraft 3.
 - Full voxel terrain. More expansion possibility but also a lot more work
+
+## Reference architecture
+
+RISC-V like chip architecture

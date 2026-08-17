@@ -8,13 +8,23 @@ static Allocation_Result arena_alloc(Allocator allocator, usize size) {
   Arena_Data *arena = (Arena_Data *)allocator.ptr;
   Allocation_Result result = {0};
 
-  if (size >= (arena->size - arena->offset)) {
+  usize offset = arena->offset;
+  if (allocator.align > 0) {
+    uintptr addr = (uintptr)(arena->buf + offset);
+    usize remainder = (usize)(addr % allocator.align);
+
+    if (remainder > 0) {
+      offset += allocator.align - remainder;
+    }
+  }
+
+  if (offset > arena->size || size > arena->size - offset) {
     result.err = Allocation_Error_Out_Of_Memory;
     return result;
   }
 
-  result.allocation = arena->buf + arena->offset;
-  arena->offset += size;
+  result.allocation = arena->buf + offset;
+  arena->offset = offset + size;
 
   return result;
 }
@@ -42,6 +52,7 @@ void init_arena(Arena_Data *arena, byte *buf, usize size) {
 Allocator arena_allocator(Arena_Data *arena) {
   Allocator allocator = (Allocator){
     .ptr = arena,
+    .align = 2 * sizeof(void *),
     .alloc = arena_alloc,
     .free = arena_free,
     .free_all = arena_free_all,

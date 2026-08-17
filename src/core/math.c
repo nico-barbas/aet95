@@ -12,8 +12,8 @@ i32 sign_extend_i32(u32 value, u32 bits) {
   return (i32)(value << shift) >> shift;
 }
 
-usize hash_fnv1a(void *data, usize size) {
-  usize hash = 14695981039346656037ULL; // FNV offset basis
+u64 hash_fnv1a(void *data, usize size) {
+  u64 hash = 14695981039346656037ULL; // FNV offset basis
   byte *buf = (byte *)data;
 
   for (usize i = 0; i < size; i += 1) {

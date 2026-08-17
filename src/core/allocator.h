@@ -14,14 +14,15 @@ typedef enum Allocation_Error {
 
 typedef struct Allocation_Result {
   Allocation_Error err;
-  void *allocation;
+  rawptr allocation;
 } Allocation_Result;
 
 typedef struct Allocator Allocator;
 struct Allocator {
-  void *ptr;
+  rawptr ptr;
+  usize align;
   Allocation_Result (*alloc)(Allocator allocator, usize size);
-  Allocation_Result (*free)(Allocator allocator, void *old_data);
+  Allocation_Result (*free)(Allocator allocator, rawptr old_data);
   Allocation_Result (*free_all)(Allocator allocator);
 };
 

@@ -76,7 +76,7 @@ bool32 string_equal(String s1, String s2) {
     return false;
   }
 
-  return memcmp(s1.ptr, s2.ptr, s1.len * sizeof(char)) == 0;
+  return memcmp(s1.data, s2.data, s1.len * sizeof(char)) == 0;
 }
 
 bool32 string_to_u16(String str, u16 *out) {

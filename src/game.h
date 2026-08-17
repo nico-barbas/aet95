@@ -121,6 +121,6 @@ bool32 remove_entity(Scene *scene, Entity_Handle _handle);
 void free_all_entites(Scene *scene);
 
 bool32 entity_handle_eq(void *h1, void *h2);
-usize entity_handle_hash(void *key, usize size);
+u64 entity_handle_hash(void *key, usize size);
 
 #endif

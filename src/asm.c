@@ -46,6 +46,7 @@ typedef enum Aet_Assembly_Token_Kind {
   // Keywords
   // Registers
   Aet_Assembly_Token_Kind_register_start_,
+  Aet_Assembly_Token_Kind_Rx0,
   Aet_Assembly_Token_Kind_Rx1,
   Aet_Assembly_Token_Kind_Rx2,
   Aet_Assembly_Token_Kind_R0,
@@ -61,7 +62,6 @@ typedef enum Aet_Assembly_Token_Kind {
   Aet_Assembly_Token_Kind_R10,
   Aet_Assembly_Token_Kind_R11,
   Aet_Assembly_Token_Kind_R12,
-  Aet_Assembly_Token_Kind_R13,
   Aet_Assembly_Token_Kind_register_end_,
   Aet_Assembly_Token_Kind_instruction_start_,
 #define X(name, text) Aet_Assembly_Token_Kind_##name,
@@ -150,31 +150,24 @@ static void aet_assembler_skip_whitespace(String_Reader *reader) {
 
 // NOTE(nico): called with the sign (if any) and the first digit already
 // consumed, so this only walks the remaining digits and the decimal point.
+// NOTE(nico): [17-08-26] Removed the floating point parsing as the decision on
+// if the ISA will support floating point instruction at the hardware level or
+// soft-float will be implemented on top is undefined
 static Aet_Assembler_Error aet_assembler_lex_number(String_Reader *reader) {
-  bool32 has_decimal = false;
-  char previous_char = '\0';
-
   while (true) {
     if (string_reader_is_eof(reader)) {
       break;
     }
 
     char n = string_reader_peek(reader);
-    if (n == '.') {
-      if (has_decimal) {
-        return Aet_Assembler_Error_Malformed_Number_Literal;
-      }
-
-      has_decimal = true;
-    } else if (!char_is_number(n)) {
+    if (!char_is_number(n)) {
       break;
     }
 
-    previous_char = string_reader_advance(reader);
+    string_reader_advance(reader);
   }
 
-  return previous_char == '.' ? Aet_Assembler_Error_Malformed_Number_Literal
-                              : Aet_Assembler_Error_None;
+  return Aet_Assembler_Error_None;
 }
 
 static Aet_Assembler_Error
@@ -216,6 +209,8 @@ static Aet_Assembly_Keyword_Option aet_assembler_match_register(String str) {
 
   if (str.data[1] == 'x') {
     switch (str.data[2]) {
+    case '0':
+      return some(Aet_Assembly_Keyword_Option, Aet_Assembly_Token_Kind_Rx0);
     case '1':
       return some(Aet_Assembly_Keyword_Option, Aet_Assembly_Token_Kind_Rx1);
     case '2':
@@ -238,10 +233,8 @@ static Aet_Assembly_Keyword_Option aet_assembler_match_register(String str) {
     return none(Aet_Assembly_Keyword_Option);
   }
 
-  return some(
-      Aet_Assembly_Keyword_Option,
-      (Aet_Assembly_Token_Kind)(Aet_Assembly_Token_Kind_register_start_ + 1 + n)
-  );
+  Aet_Assembly_Token_Kind reg = (Aet_Assembly_Token_Kind_R0 + n);
+  return some(Aet_Assembly_Keyword_Option, reg);
 }
 
 static Aet_Assembly_Token aet_assembler_next_token(String_Reader *reader) {
@@ -643,7 +636,6 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     [Aet_Register_R10] = "r10",
     [Aet_Register_R11] = "r11",
     [Aet_Register_R12] = "r12",
-    [Aet_Register_R13] = "r13",
   };
 
   if (program.len == 0) {

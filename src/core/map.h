@@ -4,7 +4,7 @@
 #include "core/allocator.h"
 #include "core/types.h"
 
-typedef usize (*Open_Map_Hash_Proc)(void *key, usize key_size);
+typedef u64 (*Open_Map_Hash_Proc)(void *key, usize key_size);
 typedef bool32 (*Open_Map_Key_Eq)(void *k1, void *k2);
 
 typedef enum Open_Map_Slot_State {
@@ -72,7 +72,7 @@ void *open_map_next(Open_Map_Iterator *it);
 //////////////////////////////
 // Provided defaults
 //////////////////////////////
-usize open_map_u32_hash(void *key, usize key_size);
+u64 open_map_u32_hash(void *key, usize key_size);
 bool32 open_map_u32_eq(void *k1, void *k2);
 
 #endif
