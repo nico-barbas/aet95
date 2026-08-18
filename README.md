@@ -62,7 +62,14 @@ Four formats. The opcode always occupies the low 8 bits.
 
 The `rd` field is not always a destination. It is the written register for arithmetic and loads, the **left comparison operand** for branches, and the **value being stored** for stores. Nothing is written to a register by branches, stores, or `jump`.
 
-Both immediates are two's complement and sign-extended when decoded: `imm16` gives a range of -32768..32767, `imm24` gives -8388608..8388607. The assembler rejects anything outside those ranges.
+`loadui` is the one I-format instruction that ignores `rs1`. The field is reserved, the assembler always encodes it as zero, and the VM does not read it.
+
+Immediates come in two kinds, fixed per instruction:
+
+- **Signed.** Two's complement, sign-extended when decoded. `imm16` covers -32768..32767, `imm24` covers -8388608..8388607. This is every immediate except the two below.
+- **Zero-extended.** The field holds a raw bit pattern rather than a number, so it is never sign-extended and its range is 0..65535. Only `ori` and `loadui` work this way.
+
+The assembler rejects anything outside the range for the instruction being assembled, so `addi r0, rx0, 40000` and `ori r0, r0, -1` are both errors.
 
 `addi r0, rx0, 100` assembles to `0x00640300`:
 
@@ -89,13 +96,32 @@ Both immediates are two's complement and sign-extended when decoded: `imm16` giv
 | 5   | `divu rd, rs1, rs2`   | R      | `rd = rs1 / rs2`, **unsigned**                            |
 | 6   | `and rd, rs1, rs2`    | R      | `rd = rs1 & rs2`                                          |
 | 7   | `or rd, rs1, rs2`     | R      | `rd = rs1 \| rs2`                                         |
-| 8   | `xor rd, rs1, rs2`    | R      | `rd = rs1 ^ rs2`                                          |
-| 9   | `shiftl rd, rs1, rs2` | R      | `rd = rs1 << (rs2 & 31)`                                  |
-| 10  | `shiftr rd, rs1, rs2` | R      | `rd = rs1 >> (rs2 & 31)`, **logical** — zeroes shifted in |
+| 8   | `ori rd, rs1, imm`    | I      | `rd = rs1 \| zext(imm)`                                   |
+| 9   | `xor rd, rs1, rs2`    | R      | `rd = rs1 ^ rs2`                                          |
+| 10  | `shiftl rd, rs1, rs2` | R      | `rd = rs1 << (rs2 & 31)`                                  |
+| 11  | `shiftr rd, rs1, rs2` | R      | `rd = rs1 >> (rs2 & 31)`, **logical** — zeroes shifted in |
+| 12  | `loadui rd, imm`      | I      | `rd = imm << 16`, low 16 bits cleared                     |
 
 Wrapping is defined for `add`, `sub` and `mul`: results are truncated to 32 bits, no overflow fault. Shift amounts are masked to 5 bits, so a shift by 32 or more is a shift by `amount % 32` rather than undefined.
 
 Division is the one place that faults instead of producing a value. Both `div` and `divu` raise `Divide_By_Zero` when `rs2` is zero. `div` additionally raises `Divide_Overflow` on `-2147483648 / -1`, the single input pair whose quotient has no signed 32-bit representation. `divu` cannot overflow.
+
+Despite the name, `loadui` touches no memory — it is listed here rather than under Memory because it only materialises a constant. The `u` is for **upper**, not unsigned; it is the one place in the ISA where a trailing `u` does not mean an unsigned operand or result.
+
+### Materialising constants
+
+`ori` and `loadui` are the pair that reaches the full 32-bit space. `loadui` places a bit pattern in the upper half and clears the lower; `ori` merges a pattern into the lower half without disturbing the upper:
+
+```
+loadui r0, 0xdead       ; r0 = 0xdead0000
+ori    r0, r0, 0xbeef   ; r0 = 0xdeadbeef
+```
+
+Both immediates are bit patterns, so the two halves compose directly and no correction is needed between them.
+
+Using `addi` for the lower half instead does **not** work in general, because `addi` sign-extends. For any constant whose bit 15 is set, the sign extension borrows from the upper half: `loadui r0, 0xdead` followed by `addi r0, r0, -16657` — the only way to spell `0xbeef` in a signed field — yields `0xdeacbeef`, one short in the upper half. Reaching such a constant with `addi` means pre-biasing the upper half by `0x8000` to cancel the borrow. `ori` exists so that you do not have to.
+
+This is also what makes the whole address space reachable. Without it, only the 64 KiB window addressable as `rx0 + sext(imm16)` — the bottom and top 32 KiB — could be named without a multi-instruction shift sequence.
 
 ### Memory
 
@@ -103,14 +129,14 @@ Effective address is always `rs1 + sext(imm16)`, so offsets can be negative.
 
 | Op  | Mnemonic               | Format | Effect                          |
 | --- | ---------------------- | ------ | ------------------------------- |
-| 11  | `loadb rd, rs1, imm`   | I      | `rd = sext(RAM[addr])`, 1 byte  |
-| 12  | `loadbu rd, rs1, imm`  | I      | `rd = zext(RAM[addr])`, 1 byte  |
-| 13  | `loadh rd, rs1, imm`   | I      | `rd = sext(RAM[addr])`, 2 bytes |
-| 14  | `loadhu rd, rs1, imm`  | I      | `rd = zext(RAM[addr])`, 2 bytes |
-| 15  | `loadw rd, rs1, imm`   | I      | `rd = RAM[addr]`, 4 bytes       |
-| 16  | `storeb rd, rs1, imm`  | I      | `RAM[addr] = low byte of rd`    |
-| 17  | `storeh rd, rs1, imm`  | I      | `RAM[addr] = low 2 bytes of rd` |
-| 18  | `storew rd, rs1, imm`  | I      | `RAM[addr] = rd`, 4 bytes       |
+| 13  | `loadb rd, rs1, imm`   | I      | `rd = sext(RAM[addr])`, 1 byte  |
+| 14  | `loadbu rd, rs1, imm`  | I      | `rd = zext(RAM[addr])`, 1 byte  |
+| 15  | `loadh rd, rs1, imm`   | I      | `rd = sext(RAM[addr])`, 2 bytes |
+| 16  | `loadhu rd, rs1, imm`  | I      | `rd = zext(RAM[addr])`, 2 bytes |
+| 17  | `loadw rd, rs1, imm`   | I      | `rd = RAM[addr]`, 4 bytes       |
+| 18  | `storeb rd, rs1, imm`  | I      | `RAM[addr] = low byte of rd`    |
+| 19  | `storeh rd, rs1, imm`  | I      | `RAM[addr] = low 2 bytes of rd` |
+| 20  | `storew rd, rs1, imm`  | I      | `RAM[addr] = rd`, 4 bytes       |
 
 `loadw` needs no signed variant — it already fills the register. Stores do not either, since they only ever truncate.
 
@@ -122,20 +148,22 @@ All branch offsets are signed and measured **in instructions, relative to the br
 
 | Op  | Mnemonic             | Format | Taken when            |
 | --- | -------------------- | ------ | --------------------- |
-| 19  | `beq rd, rs1, off`   | I      | `rd == rs1`           |
-| 20  | `bneq rd, rs1, off`  | I      | `rd != rs1`           |
-| 21  | `blt rd, rs1, off`   | I      | `rd < rs1`, signed    |
-| 22  | `bgeq rd, rs1, off`  | I      | `rd >= rs1`, signed   |
-| 23  | `bltu rd, rs1, off`  | I      | `rd < rs1`, unsigned  |
-| 24  | `bgequ rd, rs1, off` | I      | `rd >= rs1`, unsigned |
+| 21  | `beq rd, rs1, off`   | I      | `rd == rs1`           |
+| 22  | `bneq rd, rs1, off`  | I      | `rd != rs1`           |
+| 23  | `blt rd, rs1, off`   | I      | `rd < rs1`, signed    |
+| 24  | `bgeq rd, rs1, off`  | I      | `rd >= rs1`, signed   |
+| 25  | `bltu rd, rs1, off`  | I      | `rd < rs1`, unsigned  |
+| 26  | `bgequ rd, rs1, off` | I      | `rd >= rs1`, unsigned |
+
+The `u` suffix selects an unsigned **comparison**. The branch offset itself is a signed displacement in every case.
 
 ### Control flow
 
 | Op  | Mnemonic   | Format | Effect                           |
 | --- | ---------- | ------ | -------------------------------- |
-| 25  | `jump off` | J      | `pc += off`                      |
-| 26  | `call off` | J      | `rx1 = pc + 1`, then `pc += off` |
-| 27  | `ret`      | N      | `pc = rx1`                       |
+| 27  | `jump off` | J      | `pc += off`                      |
+| 28  | `call off` | J      | `rx1 = pc + 1`, then `pc += off` |
+| 29  | `ret`      | N      | `pc = rx1`                       |
 
 `call` computes the return address before branching and only commits it if the target is valid, so a faulting `call` leaves `rx1` untouched.
 
@@ -187,7 +215,9 @@ bneq r0, rx0, -2        ; back to the body
 That program leaves `r2 = 10` and stops by falling off the end. Note that it does **not** end in `ret`: `ret` only ever jumps to whatever `rx1` holds, and outside a `call` that is 0, so a top-level `ret` restarts the program from instruction 0 instead of halting. Until there is a halt instruction, running off the end is the only way to stop.
 
 - `;` starts a comment that runs to the end of the line, either on its own line or after an instruction.
-- Integer literals are decimal, with an optional leading `-`. No `+` prefix, no hex or binary literals.
+- Integer literals are decimal by default, or hexadecimal with a `0x` prefix (`0X` is accepted too). Either form takes an optional leading `-`, so `-0x10` is -16. No `+` prefix and no binary literals.
+- **Hex digits must be lowercase.** `0xbeef` assembles, `0xBEEF` is rejected. The prefix is the only part where case is free.
+- A literal with two `0x` prefixes, like `0x0x1`, is a `Malformed_Number`; a bare `0x` with no digits is an invalid immediate.
 - Mnemonics are lowercase. Register names accept an uppercase `R` (`R0` works) but the `x` in the extended registers must be lowercase (`rx0`, not `RX0`).
 - There are **no labels**. Branch, jump and call take a raw signed instruction offset, which you compute by hand.
 
@@ -198,12 +228,12 @@ The disassembler is the exact inverse: its output re-assembles to a byte-identic
 Deliberately deferred. Recorded so the current shape isn't mistaken for the intended one.
 
 - **No labels**, which is by far the biggest obstacle to writing anything real by hand.
-- **No way to materialise a full 32-bit constant.** `addi` caps at ±32767 and there is no load-upper-immediate, so large constants have to be built with shifts.
-- **No immediate forms** of `sub`, `and`, `or`, `xor` or the shifts.
+- **No uppercase hex digits.** `0xBEEF` is rejected; only `a`-`f` are accepted. A lexer limitation, not a deliberate choice.
+- **No immediate forms** of `sub`, `and`, `xor` or the shifts. `or` has one — `ori` — because constant materialisation needs it; the others have no such forcing reason yet.
 - **No remainder or modulo.** Both division forms discard it, so it has to be recovered with a multiply and a subtract.
 - **No arithmetic shift right**, so sign-preserving division by powers of two is not expressible.
 - **No halt instruction.** Falling off the end is the only clean stop, which makes a top-level `ret` an accidental restart rather than an exit. There is also no way to distinguish "finished" from "never started" beyond inspecting `pc`.
 - **No MMIO region**, which is what the whole device story depends on.
 - **No misalignment fault.** Whether unaligned access should be free, slow, or trapping is still open.
 
-`shiftr` is now the last operation breaking the "unsigned variants are suffixed with `u`" rule stated above: it shifts logically but carries no `u`. Splitting it into `shiftr`/`shiftru` — arithmetic and logical — would settle the rule and close the missing arithmetic shift above in the same move.
+Two mnemonics still bend the "unsigned variants are suffixed with `u`" rule stated above. `shiftr` shifts logically but carries no `u`; splitting it into `shiftr`/`shiftru` — arithmetic and logical — would settle the rule and close the missing arithmetic shift above in the same move. `loadui` carries a `u` that means **upper** rather than unsigned, which is the only overloaded use of the suffix in the ISA.

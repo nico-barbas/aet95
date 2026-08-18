@@ -154,7 +154,29 @@ bool32 string_to_i64(String str, i64 *out) {
   }
 
   for (; i < str.len; i += 1) {
-    if (!char_is_number(str.data[i])) {
+    char c = str.data[i];
+    i64 val = 0;
+
+    switch (base) {
+    case 10: {
+      if (!char_is_number(c)) {
+        return false;
+      }
+      val = (i64)(c - '0');
+    } break;
+    case 16: {
+
+      if (!char_is_hex(c)) {
+        return false;
+      }
+
+      if (char_is_number(c)) {
+        val = (i64)(c - '0');
+      } else {
+        val = (i64)(c - 'a') + 10;
+      }
+    } break;
+    default:
       return false;
     }
 
@@ -165,7 +187,7 @@ bool32 string_to_i64(String str, i64 *out) {
 
     n = mul_result.value;
 
-    Safe_Math_I64_Result add_result = safe_add_i64(n, (i64)(str.data[i] - '0'));
+    Safe_Math_I64_Result add_result = safe_add_i64(n, val);
     if (!add_result.ok) {
       return false;
     }
@@ -460,4 +482,10 @@ String filepath_get_dir(String path) {
 ////////////////////////////////////////
 bool32 char_is_number(char c) {
   return c >= '0' && c <= '9';
+}
+
+// FIXME(nico): This should also allow ['A':'F], but this makes the parsing more
+// painful and I can't be asked for now
+bool32 char_is_hex(char c) {
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
 }

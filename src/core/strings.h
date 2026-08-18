@@ -57,5 +57,6 @@ String filepath_get_dir(String path);
 
 // NOTE(nico): Useful char and string methods for parsers
 bool32 char_is_number(char c);
+bool32 char_is_hex(char c);
 
 #endif

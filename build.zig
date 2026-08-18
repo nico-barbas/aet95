@@ -12,6 +12,7 @@ const c_flags = [_][]const u8{
     "-Wconversion",
     "-Wnull-dereference",
     "-Wdouble-promotion",
+    "-Wimplicit-fallthrough",
     "-Wformat=2",
     "-Wundef",
     "-Wcast-align",

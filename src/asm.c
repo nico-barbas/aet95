@@ -152,12 +152,12 @@ static Aet_Assembler_Error aet_assembler_lex_number(String_Reader *reader) {
     }
 
     char n = string_reader_peek(reader);
-    if (n == 'x') {
+    if (n == 'x' || n == 'X') {
       if (has_hex) {
         return Aet_Assembler_Error_Malformed_Number;
       }
       has_hex = true;
-    } else if (!char_is_number(n)) {
+    } else if (!char_is_number(n) && (!has_hex || !char_is_hex(n))) {
       break;
     }
 
