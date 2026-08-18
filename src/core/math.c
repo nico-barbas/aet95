@@ -97,6 +97,14 @@ f32 rand_f32(void) {
   return 0.f;
 }
 
+u32 min_u32(u32 a, u32 b) {
+  return a > b ? b : a;
+}
+
+u32 max_u32(u32 a, u32 b) {
+  return a > b ? a : b;
+}
+
 u64 min_u64(u64 a, u64 b) {
   return a > b ? b : a;
 }

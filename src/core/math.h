@@ -30,6 +30,9 @@ i32 clamp_i32(i32 v, i32 min, i32 max);
 i32 min_i32(i32 a, i32 b);
 i32 max_i32(i32 a, i32 b);
 
+u32 max_u32(u32 a, u32 b);
+u32 min_u32(u32 a, u32 b);
+
 u64 min_u64(u64 a, u64 b);
 
 //////////////////////////////////

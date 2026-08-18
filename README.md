@@ -6,6 +6,8 @@ This project's goal is to make a programming game. The player is responsible of 
 
 They need to harvest resources, similarly to factory games. Raw materials are refined into other resources used to produce more advanced hardware and software. _Progression still need to be designed of course_
 
+Due to the high engineering skill ceiling, another comparison would be Kerbal Space program, with this game targeting embedded, low-level, and programming
+
 Each machine in the fleet will embed a aet-95 cpu following a simple but powerful ISA, limited resources, selected devices and a running program.
 
 The player controls the design (combination of hardware and software). Examples (not all might make it, especially the duplication machine which might break a lot of things if not done carefully):
@@ -31,6 +33,8 @@ Based on a heightmap. There is no need for overhang so the source of truth can s
 RISC-V like chip architecture
 
 Default for operations with immediate is signed-extended. Separate operations for unsigned are suffixed with `u`
+
+Devices are register only. They do not own part of the address space for their own memory. This means that for high I/O devices, it will probably be important to implement DMA (Direct Memory Access) to allow those devices to write directly to the main RAM.
 
 # The aet-95 ISA
 
@@ -127,16 +131,16 @@ This is also what makes the whole address space reachable. Without it, only the 
 
 Effective address is always `rs1 + sext(imm16)`, so offsets can be negative.
 
-| Op  | Mnemonic               | Format | Effect                          |
-| --- | ---------------------- | ------ | ------------------------------- |
-| 13  | `loadb rd, rs1, imm`   | I      | `rd = sext(RAM[addr])`, 1 byte  |
-| 14  | `loadbu rd, rs1, imm`  | I      | `rd = zext(RAM[addr])`, 1 byte  |
-| 15  | `loadh rd, rs1, imm`   | I      | `rd = sext(RAM[addr])`, 2 bytes |
-| 16  | `loadhu rd, rs1, imm`  | I      | `rd = zext(RAM[addr])`, 2 bytes |
-| 17  | `loadw rd, rs1, imm`   | I      | `rd = RAM[addr]`, 4 bytes       |
-| 18  | `storeb rd, rs1, imm`  | I      | `RAM[addr] = low byte of rd`    |
-| 19  | `storeh rd, rs1, imm`  | I      | `RAM[addr] = low 2 bytes of rd` |
-| 20  | `storew rd, rs1, imm`  | I      | `RAM[addr] = rd`, 4 bytes       |
+| Op  | Mnemonic              | Format | Effect                          |
+| --- | --------------------- | ------ | ------------------------------- |
+| 13  | `loadb rd, rs1, imm`  | I      | `rd = sext(RAM[addr])`, 1 byte  |
+| 14  | `loadbu rd, rs1, imm` | I      | `rd = zext(RAM[addr])`, 1 byte  |
+| 15  | `loadh rd, rs1, imm`  | I      | `rd = sext(RAM[addr])`, 2 bytes |
+| 16  | `loadhu rd, rs1, imm` | I      | `rd = zext(RAM[addr])`, 2 bytes |
+| 17  | `loadw rd, rs1, imm`  | I      | `rd = RAM[addr]`, 4 bytes       |
+| 18  | `storeb rd, rs1, imm` | I      | `RAM[addr] = low byte of rd`    |
+| 19  | `storeh rd, rs1, imm` | I      | `RAM[addr] = low 2 bytes of rd` |
+| 20  | `storew rd, rs1, imm` | I      | `RAM[addr] = rd`, 4 bytes       |
 
 `loadw` needs no signed variant — it already fills the register. Stores do not either, since they only ever truncate.
 

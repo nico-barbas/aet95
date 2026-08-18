@@ -5,7 +5,47 @@
 #include "core/array.h"
 #include "core/types.h"
 
+#define AET_MMIO_BASE_ADDR 0xffff8000
+#define AET_MMIO_REGION (0xffffffff - AET_MMIO_BASE_ADDR)
+#define AET_DEVICE_PAGE_SIZE (64u)
+#define AET_DEVICE_PAGE_SHIFT (6u)
+
+static_assert(
+    1 << AET_DEVICE_PAGE_SHIFT == AET_DEVICE_PAGE_SIZE,
+    "Device Page size and page are out of sync"
+);
+
 typedef Array(u32) Aet_Program;
+
+typedef enum Aet_Fault {
+  Aet_Fault_None,
+  Aet_Fault_Invalid_Opcode,
+  Aet_Fault_Invalid_Next_Program_Counter,
+  Aet_Fault_Invalid_Address,
+  Aet_Fault_Invalid_MMIO_Operation,
+  Aet_Fault_Misaligned_Address,
+  Aet_Fault_Divide_By_Zero,
+  Aet_Fault_Divide_Overflow,
+} Aet_Fault;
+
+typedef enum Aet_Machine_Error {
+  Aet_Machine_Error_None,
+  Aet_Machine_Error_Failed_To_Initialize_CPU,
+  Aet_Machine_Error_Failed_To_Initialize_RAM,
+  Aet_Machine_Error_Failed_To_Initialize_Devices,
+} Aet_Machine_Error;
+
+typedef enum Aet_CPU_Error {
+  Aet_CPU_Error_None,
+  Aet_CPU_Error_Failed_To_Initialize,
+  Aet_CPU_Error_Budget_Spent,
+  Aet_CPU_Error_Fault,
+} Aet_CPU_Error;
+
+typedef enum Aet_RAM_Error {
+  Aet_RAM_Error_None,
+  Aet_RAM_Error_Failed_To_Initialize,
+} Aet_RAM_Error;
 
 typedef enum Aet_Bit_Extension {
   Aet_Bit_Extension_None,
@@ -103,24 +143,6 @@ typedef enum Aet_CPU_Flag {
 } Aet_CPU_Flag;
 typedef u32 Aet_CPU_Flags;
 
-typedef enum Aet_CPU_Error {
-  Aet_CPU_Error_None,
-  Aet_CPU_Error_Failed_To_Initialize,
-  Aet_CPU_Error_Budget_Spent,
-  Aet_CPU_Error_Fault,
-} Aet_CPU_Error;
-
-typedef enum Aet_CPU_Fault {
-  Aet_CPU_Fault_None,
-  Aet_CPU_Fault_Invalid_Opcode,
-  Aet_CPU_Fault_Invalid_Next_Program_Counter,
-  Aet_CPU_Fault_Invalid_Memory_Access,
-  Aet_CPU_Fault_Divide_By_Zero,
-  Aet_CPU_Fault_Divide_Overflow,
-  // Maybe misaligned access fault, depending on the strictness of the ISA and
-  // VM
-} Aet_CPU_Fault;
-
 typedef enum Aet_CPU_Trap {
   Aet_CPU_Trap_None,
 } Aet_CPU_Trap;
@@ -129,37 +151,84 @@ typedef struct Aet_CPU {
   u32 registers[Aet_Register_MAX];
   u32 pc; // Program counter
   Aet_CPU_Flags flags;
-  Aet_CPU_Fault fault;
+  Aet_Fault fault;
   Aet_CPU_Trap trap;
   Aet_Program program;
 } Aet_CPU;
 
-typedef enum Aet_RAM_Error {
-  Aet_RAM_Error_None,
-  Aet_RAM_Error_Failed_To_Initialize,
-  Aet_RAM_Error_Invalid_Read_Ptr,
-  Aet_RAM_Error_Access_Out_Of_Bounds,
-} Aet_RAM_Error;
-
 typedef struct Aet_RAM {
-  Allocator allocator;
   byte *raw;
   usize cap;
 } Aet_RAM;
 
+#define AET_DEVICE_CLASS(X)                                                    \
+  X(Identity, 0)                                                               \
+  X(Motor, 1)                                                                  \
+  X(Sensor, 2)
+
+typedef enum Aet_Device_Class {
+#define X(name, kind) Aet_Device_Class_##name = kind,
+  AET_DEVICE_CLASS(X)
+#undef X
+      Aet_Device_Class_MAX
+} Aet_Device_Class;
+
+typedef u32 Aet_Device_Available_Set;
+
+typedef struct Aet_Device {
+  rawptr data;
+  Aet_Fault (*read_u32_fn)(rawptr data, u32 reg, u32 *out);
+  Aet_Fault (*write_u32_fn)(rawptr data, u32 reg, u32 value);
+} Aet_Device;
+
+typedef struct Aet_Memory_Bus {
+  Aet_RAM *ram;
+  Aet_Device_Available_Set available_devices;
+  Aet_Device *devices;
+} Aet_Memory_Bus;
+
+typedef struct Aet_Machine {
+  Allocator allocator;
+  Aet_CPU cpu;
+  Aet_RAM ram;
+  Aet_Device_Available_Set available_devices;
+  Aet_Device devices[Aet_Device_Class_MAX];
+} Aet_Machine;
+
+// NOTE(nico): ultimately the "spec" of a machine.
+// It could be interesting to have the devices changed at runtime, but not
+// really important for now
+typedef struct Aet_Machine_Create_Info {
+  // TODO(nico):
+  // - cpu clock speed
+  // - ISA revision
+  usize ram_byte_cap;
+  Aet_Device_Available_Set available_devices;
+  Aet_Device devices[Aet_Device_Class_MAX];
+} Aet_Machine_Create_Info;
+
+Aet_Machine_Error aet_machine_init(
+    Aet_Machine *machine, Aet_Machine_Create_Info *info, Allocator allocator
+);
+void aet_machine_destroy(Aet_Machine *machine);
+// NOTE(nico): The budget should be internal to the machine or the cpu
+// ultimately
+Aet_CPU_Error aet_machine_run(Aet_Machine *machine, usize budget);
+
 Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu);
 Aet_CPU_Error aet_cpu_load_program(Aet_CPU *cpu, Aet_Program program);
-Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget);
+Aet_CPU_Error
+aet_cpu_execute_program(Aet_CPU *cpu, Aet_Memory_Bus *bus, usize budget);
 
 Aet_RAM_Error aet_ram_init(Aet_RAM *ram, usize byte_cap, Allocator allocator);
-void aet_ram_destroy(Aet_RAM *ram);
+void aet_ram_destroy(Aet_RAM *ram, Allocator allocator);
 
-Aet_RAM_Error aet_ram_read_byte(Aet_RAM *ram, u32 addr, byte *out);
-Aet_RAM_Error aet_ram_read_u16(Aet_RAM *ram, u32 addr, u16 *out);
-Aet_RAM_Error aet_ram_read_u32(Aet_RAM *ram, u32 addr, u32 *out);
+Aet_Fault aet_ram_read_byte(Aet_RAM *ram, u32 addr, byte *out);
+Aet_Fault aet_ram_read_u16(Aet_RAM *ram, u32 addr, u16 *out);
+Aet_Fault aet_ram_read_u32(Aet_RAM *ram, u32 addr, u32 *out);
 
-Aet_RAM_Error aet_ram_write_byte(Aet_RAM *ram, u32 addr, byte value);
-Aet_RAM_Error aet_ram_write_u16(Aet_RAM *ram, u32 addr, u16 value);
-Aet_RAM_Error aet_ram_write_u32(Aet_RAM *ram, u32 addr, u32 value);
+Aet_Fault aet_ram_write_byte(Aet_RAM *ram, u32 addr, byte value);
+Aet_Fault aet_ram_write_u16(Aet_RAM *ram, u32 addr, u16 value);
+Aet_Fault aet_ram_write_u32(Aet_RAM *ram, u32 addr, u32 value);
 
 #endif
