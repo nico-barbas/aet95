@@ -7,26 +7,21 @@
 
 typedef enum Aet_Assembler_Error {
   Aet_Assembler_Error_None,
-  Aet_Assembler_Error_Malformed_Number_Literal,
+  Aet_Assembler_Error_Malformed_Number,
   Aet_Assembler_Error_Invalid_Identifier,
   Aet_Assembler_Error_Invalid_Syntax,
+  Aet_Assembler_Error_Invalid_Immediate_Value,
 } Aet_Assembler_Error;
 
-typedef struct Aet_Assembler_Result {
-  Aet_Assembler_Error err;
-  Aet_Program output;
-} Aet_Assembler_Result;
+typedef Result(Aet_Program, Aet_Assembler_Error) Aet_Assembler_Result;
 
-typedef struct Aet_Disassembler {
-  Allocator allocator;
-  Aet_Program program;
-  usize offset;
-} Aet_Disassembler;
+typedef enum Aet_Disassembler_Error {
+  Aet_Disassembler_Error_None,
+  Aet_Disassembler_Error_Invalid_Program,
+  Aet_Disassembler_Error_Invalid_Opcode,
+} Aet_Disassembler_Error;
 
-typedef struct Aet_Disassembler_Result {
-  bool32 ok;
-  String output;
-} Aet_Disassembler_Result;
+typedef Result(String, Aet_Disassembler_Error) Aet_Disassembler_Result;
 
 Aet_Assembler_Result aet_assemble(String source, Allocator allocator);
 Aet_Disassembler_Result

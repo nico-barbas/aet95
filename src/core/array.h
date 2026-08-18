@@ -18,7 +18,7 @@
                  .alloc((_allocator), (cap) * sizeof(*((array_target).items))) \
                  .allocation,                                                  \
     .len = (cap),                                                              \
-    .is_dynamically_allocated = false,                                         \
+    .is_dynamically_allocated = true,                                          \
   })
 
 #define delete_array(array)                                                    \

@@ -45,6 +45,7 @@ typedef enum App_GPU_Backend {
 } App_GPU_Backend;
 
 typedef struct App {
+  Allocator allocator;
   Logger logger;
 
   GLFWwindow *window_handle;

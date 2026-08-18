@@ -1,6 +1,7 @@
 #include "strings.h"
 
 #include "core/allocator.h"
+#include "core/math.h"
 #include "core/types.h"
 
 #include <assert.h>
@@ -12,12 +13,11 @@
 ////////////////////////////////////////
 // String operations
 ////////////////////////////////////////
-void delete_string(String str) {
-  if (!str.allocator.some || str.ptr == nullptr) {
+void delete_string(String str, Allocator allocator) {
+  if (!str.is_dynamically_allocated || !str.is_owned) {
     return;
   }
 
-  Allocator allocator = str.allocator.value;
   allocator.free(allocator, str.ptr);
 }
 
@@ -40,15 +40,33 @@ String from_c_str(const char *str) {
 String string_slice(String str, usize lo, usize hi) {
   assert(lo < str.len && hi > 0 && hi <= str.len && lo < hi);
   return (String){
-    .allocator = {.some = false},
+    .ptr = str.ptr,
     .data = &str.data[lo],
     .len = hi - lo,
+    .is_owned = false,
+    .is_dynamically_allocated = str.is_dynamically_allocated,
   };
 }
 
-// FIXME(nico): This is terrible.. This proc should not null terminate the
-// cloned string. If it does, it should be a parameter.
 String string_clone(String str, Allocator allocator) {
+  Allocation_Result alloc = allocator.alloc(allocator, sizeof(char) * str.len);
+  if (alloc.err != Allocation_Error_None) {
+    return (String){0};
+  }
+
+  char *result = (char *)alloc.allocation;
+
+  memcpy(result, str.data, sizeof(char) * str.len);
+  return (String){
+    .ptr = result,
+    .data = result,
+    .len = str.len,
+    .is_owned = true,
+    .is_dynamically_allocated = true,
+  };
+}
+
+String string_clone_terminated(String str, Allocator allocator) {
   Allocation_Result alloc =
       allocator.alloc(allocator, sizeof(char) * str.len + 1);
   if (alloc.err != Allocation_Error_None) {
@@ -60,10 +78,11 @@ String string_clone(String str, Allocator allocator) {
   memcpy(result, str.data, sizeof(char) * str.len);
   result[str.len] = '\0';
   return (String){
-    .allocator = {.some = true, .value = allocator},
     .ptr = result,
     .data = result,
-    .len = str.len + 1,
+    .len = str.len,
+    .is_owned = true,
+    .is_dynamically_allocated = true,
   };
 }
 
@@ -108,13 +127,30 @@ bool32 string_to_u32(String str, u32 *out) {
 }
 
 bool32 string_to_i64(String str, i64 *out) {
+  if (str.len == 0) {
+    return false;
+  }
+
   i64 n = 0;
   i64 sign = 1;
+  i64 base = 10;
 
   usize i = 0;
   if (str.data[0] == '-') {
+    if (str.len == 1) {
+      return false;
+    }
     sign = -1;
     i += 1;
+  }
+
+  if (str.len >= i + 2 && str.data[i] == '0' &&
+      (str.data[i + 1] == 'x' || str.data[i + 1] == 'X')) {
+    i += 2;
+    base = 16;
+    if (str.len < i + 1) {
+      return false;
+    }
   }
 
   for (; i < str.len; i += 1) {
@@ -122,7 +158,19 @@ bool32 string_to_i64(String str, i64 *out) {
       return false;
     }
 
-    n = n * 10 + (i64)(str.data[i] - '0');
+    Safe_Math_I64_Result mul_result = safe_mul_i64(n, base);
+    if (!mul_result.ok) {
+      return false;
+    }
+
+    n = mul_result.value;
+
+    Safe_Math_I64_Result add_result = safe_add_i64(n, (i64)(str.data[i] - '0'));
+    if (!add_result.ok) {
+      return false;
+    }
+
+    n = add_result.value;
   }
 
   *out = n * sign;
@@ -263,12 +311,19 @@ bool32 builder_write(String_Builder *b, const char *fmt_str, ...) {
 
 void builder_write_i32(String_Builder *b, i32 n) {
   if (n == 0) {
+    if (b->len >= b->cap) {
+      return;
+    }
     b->buf[b->len] = '0';
     b->len += 1;
     return;
   }
 
   if (n < 0) {
+    if (b->len >= b->cap) {
+      return;
+    }
+
     b->buf[b->len] = '-';
     b->len += 1;
   }
@@ -364,8 +419,11 @@ String builder_clone_string(String_Builder *b, Allocator allocator) {
 
   memcpy(alloc.allocation, b->buf, sizeof(char) * b->len);
   return (String){
+    .ptr = alloc.allocation,
     .data = alloc.allocation,
     .len = b->len,
+    .is_owned = true,
+    .is_dynamically_allocated = true,
   };
 }
 

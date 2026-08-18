@@ -26,6 +26,8 @@ typedef __SIZE_TYPE__ usize;
 static_assert(sizeof(usize) == sizeof(void *), "usize must be pointer-sized");
 
 #define countof(array) (sizeof(array) / sizeof((array)[0]))
+#define concat_impl_(a, b) a##b
+#define concat_(a, b) concat_impl_(a, b)
 
 #define Option(type)                                                           \
   struct {                                                                     \
@@ -46,5 +48,24 @@ static_assert(sizeof(usize) == sizeof(void *), "usize must be pointer-sized");
   }
 #define ok(T, val) ((T){.ok = true, .value = (val)})
 #define err(T, err) ((T){.ok = false, .error = (err)})
+
+#define try(T, expr) try_impl_(T, (expr), concat_(try_value_, __COUNTER__))
+#define try_impl_(T, expr, res)                                                \
+  __extension__({                                                              \
+    typeof(expr) res = (expr);                                                 \
+    if (!res.ok) {                                                             \
+      return err(T, res.error);                                                \
+    }                                                                          \
+    res.value;                                                                 \
+  })
+
+// NOTE(nico): failure is a bug, not a condition to propagate
+#define unwrap(expr) unwrap_impl_((expr), concat_(unwrap_value_, __COUNTER__))
+#define unwrap_impl_(expr, res)                                                \
+  __extension__({                                                              \
+    typeof(expr) res = (expr);                                                 \
+    assert(res.ok);                                                            \
+    res.value;                                                                 \
+  })
 
 #endif

@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 
+#include <limits.h>
 #include <math.h>
 
 //////////////////////////////////
@@ -98,6 +99,36 @@ f32 rand_f32(void) {
 
 u64 min_u64(u64 a, u64 b) {
   return a > b ? b : a;
+}
+
+//////////////////////////////////
+// Safe math
+//////////////////////////////////
+Safe_Math_I64_Result safe_add_i64(i64 a, i64 b) {
+  if ((b > 0 && a > LLONG_MAX - b) || (b < 0 && a < LLONG_MIN - b)) {
+    return err(Safe_Math_I64_Result, Safe_Math_Error_Signed_Overflow);
+  }
+  return ok(Safe_Math_I64_Result, a + b);
+}
+
+Safe_Math_I64_Result safe_mul_i64(i64 a, i64 b) {
+  if (a > 0) {
+    if (b > 0 && a > LLONG_MAX / b) {
+      return err(Safe_Math_I64_Result, Safe_Math_Error_Signed_Overflow);
+    }
+    if (b < 0 && b < LLONG_MIN / a) {
+      return err(Safe_Math_I64_Result, Safe_Math_Error_Signed_Overflow);
+    }
+  } else if (a < 0) {
+    if (b > 0 && a < LLONG_MIN / b) {
+      return err(Safe_Math_I64_Result, Safe_Math_Error_Signed_Overflow);
+    }
+    if (b < 0 && a < LLONG_MAX / b) {
+      return err(Safe_Math_I64_Result, Safe_Math_Error_Signed_Overflow);
+    }
+  }
+
+  return ok(Safe_Math_I64_Result, a * b);
 }
 
 //////////////////////////////////

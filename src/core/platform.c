@@ -119,6 +119,7 @@ bool32 init_app(App_Create_Info *info, Allocator allocator) {
   App *app = info->app;
   *app = (App){0};
 
+  app->allocator = allocator;
   app->logger = info->logger;
   app->backing_allocator = allocator;
 
@@ -417,7 +418,7 @@ bool32 init_app(App_Create_Info *info, Allocator allocator) {
 }
 
 void close_app(App *app) {
-  delete_string(app->window_title);
+  delete_string(app->window_title, app->allocator);
 
   wgpuInstanceRelease(app->gpu_instance);
   wgpuSurfaceRelease(app->gpu_surface);

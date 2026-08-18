@@ -1,5 +1,6 @@
 #include "game.h"
 
+#include "asm.h"
 #include "core/allocator.h"
 #include "core/camera.h"
 #include "core/log.h"
@@ -9,6 +10,7 @@
 #include "render.h"
 
 #include <assert.h>
+#include <stdio.h>
 
 Game_State _game = {0};
 
@@ -82,6 +84,12 @@ void init_game(void) {
   assert(db_ok);
 
   init_scene(&_game.scene, _game.global_allocator);
+
+  Aet_Program program = unwrap(
+      aet_assemble(from_c_str("addi r0, rx0, -0x12"), _game.frame_allocator)
+  );
+  String disasm = unwrap(aet_disassemble(program, _game.frame_allocator));
+  printf("%s", disasm.data);
 }
 
 void close_game(void) {

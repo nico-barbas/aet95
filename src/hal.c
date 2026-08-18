@@ -4,6 +4,12 @@
 #include "core/math.h"
 
 #include <assert.h>
+#include <limits.h>
+#include <string.h>
+
+/*
+  NOTE(nico): No halt for now even if exists in the enum and flags
+*/
 
 Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu) {
   *cpu = (Aet_CPU){0};
@@ -19,7 +25,7 @@ Aet_CPU_Error aet_cpu_load_program(Aet_CPU *cpu, Aet_Program program) {
 
 static bool32 aet_cpu_branch_to(Aet_CPU *cpu, u32 *next_pc, i32 offset) {
   *next_pc = cpu->pc + (u32)offset;
-  return *next_pc < cpu->program.len;
+  return *next_pc <= cpu->program.len;
 }
 
 static u32 aet_cpu_read_register(Aet_CPU *cpu, Aet_Register reg) {
@@ -110,10 +116,35 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
     } break;
     case Aet_CPU_Opcode_Div: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+
+      i32 divisor = (i32)(aet_cpu_read_register(cpu, rs2));
+      if (divisor == 0) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_CPU_Fault_Divide_By_Zero;
+        goto exit;
+      }
+
+      i32 dividend = (i32)aet_cpu_read_register(cpu, rs1);
+      if (dividend == INT_MIN && divisor == -1) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_CPU_Fault_Divide_Overflow;
+        goto exit;
+      }
+
+      aet_cpu_write_register(cpu, rd, (u32)(dividend / divisor));
+    } break;
+    case Aet_CPU_Opcode_Divu: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+
+      u32 divisor = aet_cpu_read_register(cpu, rs2);
+      if (divisor == 0) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_CPU_Fault_Divide_By_Zero;
+        goto exit;
+      }
+
       aet_cpu_write_register(
-          cpu,
-          rd,
-          aet_cpu_read_register(cpu, rs1) / aet_cpu_read_register(cpu, rs2)
+          cpu, rd, aet_cpu_read_register(cpu, rs1) / divisor
       );
     } break;
     case Aet_CPU_Opcode_And: {
@@ -132,6 +163,12 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
           aet_cpu_read_register(cpu, rs1) | aet_cpu_read_register(cpu, rs2)
       );
     } break;
+    case Aet_CPU_Opcode_Ori: {
+      u32 immediate = (instr >> 16) & 0xffff;
+      aet_cpu_write_register(
+          cpu, rd, aet_cpu_read_register(cpu, rs1) | immediate
+      );
+    } break;
     case Aet_CPU_Opcode_Xor: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
       aet_cpu_write_register(
@@ -142,23 +179,40 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
     } break;
     case Aet_CPU_Opcode_Shl: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      u32 amount = aet_cpu_read_register(cpu, rs2) & 31;
       aet_cpu_write_register(
-          cpu,
-          rd,
-          aet_cpu_read_register(cpu, rs1) << aet_cpu_read_register(cpu, rs2)
+          cpu, rd, aet_cpu_read_register(cpu, rs1) << amount
       );
     } break;
     case Aet_CPU_Opcode_Shr: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      u32 amount = aet_cpu_read_register(cpu, rs2) & 31;
       aet_cpu_write_register(
-          cpu,
-          rd,
-          aet_cpu_read_register(cpu, rs1) >> aet_cpu_read_register(cpu, rs2)
+          cpu, rd, aet_cpu_read_register(cpu, rs1) >> amount
       );
     } break;
+    case Aet_CPU_Opcode_Lui: {
+      u32 immediate = instr & 0xffff0000;
+      aet_cpu_write_register(cpu, rd, immediate);
+    } break;
     case Aet_CPU_Opcode_Lb: {
-      u32 immediate = (u32)((instr >> 16) & 0xffff);
-      u32 addr = aet_cpu_read_register(cpu, rs1) + immediate;
+      i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
+      u32 addr = aet_cpu_read_register(cpu, rs1) + (u32)immediate;
+
+      byte value = 0;
+      Aet_RAM_Error ram_err = aet_ram_read_byte(ram, addr, &value);
+
+      if (ram_err != Aet_RAM_Error_None) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_CPU_Fault_Invalid_Memory_Access;
+        goto exit;
+      }
+
+      aet_cpu_write_register(cpu, rd, (u32)sign_extend_i32(value, 8));
+    } break;
+    case Aet_CPU_Opcode_Lbu: {
+      i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
+      u32 addr = aet_cpu_read_register(cpu, rs1) + (u32)immediate;
 
       byte value = 0;
       Aet_RAM_Error ram_err = aet_ram_read_byte(ram, addr, &value);
@@ -172,8 +226,22 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
       aet_cpu_write_register(cpu, rd, (u32)value);
     } break;
     case Aet_CPU_Opcode_Lh: {
-      u32 immediate = (u32)((instr >> 16) & 0xffff);
-      u32 addr = aet_cpu_read_register(cpu, rs1) + immediate;
+      i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
+      u32 addr = aet_cpu_read_register(cpu, rs1) + (u32)immediate;
+
+      u16 value = 0;
+      Aet_RAM_Error ram_err = aet_ram_read_u16(ram, addr, &value);
+
+      if (ram_err != Aet_RAM_Error_None) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_CPU_Fault_Invalid_Memory_Access;
+        goto exit;
+      }
+      aet_cpu_write_register(cpu, rd, (u32)sign_extend_i32(value, 16));
+    } break;
+    case Aet_CPU_Opcode_Lhu: {
+      i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
+      u32 addr = aet_cpu_read_register(cpu, rs1) + (u32)immediate;
 
       u16 value = 0;
       Aet_RAM_Error ram_err = aet_ram_read_u16(ram, addr, &value);
@@ -186,8 +254,8 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
       aet_cpu_write_register(cpu, rd, (u32)value);
     } break;
     case Aet_CPU_Opcode_Lw: {
-      u32 immediate = (u32)((instr >> 16) & 0xffff);
-      u32 addr = aet_cpu_read_register(cpu, rs1) + immediate;
+      i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
+      u32 addr = aet_cpu_read_register(cpu, rs1) + (u32)immediate;
 
       u32 value = 0;
       Aet_RAM_Error ram_err = aet_ram_read_u32(ram, addr, &value);
@@ -200,8 +268,8 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
       aet_cpu_write_register(cpu, rd, value);
     } break;
     case Aet_CPU_Opcode_Sb: {
-      u32 immediate = (u32)((instr >> 16) & 0xffff);
-      u32 addr = aet_cpu_read_register(cpu, rs1) + immediate;
+      i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
+      u32 addr = aet_cpu_read_register(cpu, rs1) + (u32)immediate;
 
       Aet_RAM_Error ram_err =
           aet_ram_write_byte(ram, addr, (byte)aet_cpu_read_register(cpu, rd));
@@ -213,8 +281,8 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
       }
     } break;
     case Aet_CPU_Opcode_Sh: {
-      u32 immediate = (u32)((instr >> 16) & 0xffff);
-      u32 addr = aet_cpu_read_register(cpu, rs1) + immediate;
+      i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
+      u32 addr = aet_cpu_read_register(cpu, rs1) + (u32)immediate;
 
       Aet_RAM_Error ram_err =
           aet_ram_write_u16(ram, addr, (u16)aet_cpu_read_register(cpu, rd));
@@ -226,8 +294,8 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
       }
     } break;
     case Aet_CPU_Opcode_Sw: {
-      u32 immediate = (u32)((instr >> 16) & 0xffff);
-      u32 addr = aet_cpu_read_register(cpu, rs1) + immediate;
+      i32 immediate = sign_extend_i32((instr >> 16) & 0xffff, 16);
+      u32 addr = aet_cpu_read_register(cpu, rs1) + (u32)immediate;
 
       Aet_RAM_Error ram_err =
           aet_ram_write_u32(ram, addr, aet_cpu_read_register(cpu, rd));
@@ -267,16 +335,18 @@ Aet_CPU_Error aet_cpu_execute(Aet_CPU *cpu, Aet_RAM *ram, usize budget) {
     } break;
     case Aet_CPU_Opcode_Call: {
       i32 offset = sign_extend_i32(instr >> 8, 24);
-      aet_cpu_write_register(cpu, Aet_Register_Rx1, next_pc);
+      u32 return_pc = next_pc;
       if (!aet_cpu_branch_to(cpu, &next_pc, offset)) {
         err = Aet_CPU_Error_Fault;
         cpu->fault = Aet_CPU_Fault_Invalid_Next_Program_Counter;
         goto exit;
       }
+
+      aet_cpu_write_register(cpu, Aet_Register_Rx1, return_pc);
     } break;
     case Aet_CPU_Opcode_Ret: {
       u32 return_addr = aet_cpu_read_register(cpu, Aet_Register_Rx1);
-      if (return_addr >= cpu->program.len) {
+      if (return_addr > cpu->program.len) {
         err = Aet_CPU_Error_Fault;
         cpu->fault = Aet_CPU_Fault_Invalid_Next_Program_Counter;
         goto exit;
@@ -302,16 +372,18 @@ exit:
   return err;
 }
 
-Aet_RAM_Error aet_ram_init(Aet_RAM *ram, Allocator allocator) {
+Aet_RAM_Error aet_ram_init(Aet_RAM *ram, usize byte_cap, Allocator allocator) {
   ram->allocator = allocator;
 
-  Allocation_Result alloc =
-      allocator.alloc(allocator, AET_RAM_CAP * sizeof(byte));
+  Allocation_Result alloc = allocator.alloc(allocator, byte_cap * sizeof(byte));
   if (alloc.err != Allocation_Error_None) {
     return Aet_RAM_Error_Failed_To_Initialize;
   }
 
   ram->raw = (byte *)alloc.allocation;
+  ram->cap = byte_cap;
+
+  memset(ram->raw, 0, ram->cap);
   return Aet_RAM_Error_None;
 }
 
@@ -320,7 +392,7 @@ void aet_ram_destroy(Aet_RAM *ram) {
 }
 
 Aet_RAM_Error aet_ram_read_byte(Aet_RAM *ram, u32 addr, byte *out) {
-  if (addr >= AET_RAM_CAP) {
+  if (addr >= ram->cap) {
     return Aet_RAM_Error_Access_Out_Of_Bounds;
   }
 
@@ -328,17 +400,9 @@ Aet_RAM_Error aet_ram_read_byte(Aet_RAM *ram, u32 addr, byte *out) {
   return Aet_RAM_Error_None;
 }
 
-Aet_RAM_Error aet_ram_write_byte(Aet_RAM *ram, u32 addr, byte value) {
-  if (addr >= AET_RAM_CAP) {
-    return Aet_RAM_Error_Access_Out_Of_Bounds;
-  }
-
-  ram->raw[addr] = value;
-  return Aet_RAM_Error_None;
-}
-
 Aet_RAM_Error aet_ram_read_u16(Aet_RAM *ram, u32 addr, u16 *out) {
-  if (addr + 1 >= AET_RAM_CAP) {
+  usize size = sizeof(u16);
+  if (addr >= ram->cap || ram->cap - addr < size) {
     return Aet_RAM_Error_Access_Out_Of_Bounds;
   }
 
@@ -346,18 +410,9 @@ Aet_RAM_Error aet_ram_read_u16(Aet_RAM *ram, u32 addr, u16 *out) {
   return Aet_RAM_Error_None;
 }
 
-Aet_RAM_Error aet_ram_write_u16(Aet_RAM *ram, u32 addr, u16 value) {
-  if (addr + 1 >= AET_RAM_CAP) {
-    return Aet_RAM_Error_Access_Out_Of_Bounds;
-  }
-
-  ram->raw[addr] = (byte)(value & 0xff);
-  ram->raw[addr + 1] = (byte)((value >> 8) & 0xff);
-  return Aet_RAM_Error_None;
-}
-
 Aet_RAM_Error aet_ram_read_u32(Aet_RAM *ram, u32 addr, u32 *out) {
-  if (addr + 3 >= AET_RAM_CAP) {
+  usize size = sizeof(u32);
+  if (addr >= ram->cap || ram->cap - addr < size) {
     return Aet_RAM_Error_Access_Out_Of_Bounds;
   }
 
@@ -366,8 +421,29 @@ Aet_RAM_Error aet_ram_read_u32(Aet_RAM *ram, u32 addr, u32 *out) {
   return Aet_RAM_Error_None;
 }
 
+Aet_RAM_Error aet_ram_write_byte(Aet_RAM *ram, u32 addr, byte value) {
+  if (addr >= ram->cap) {
+    return Aet_RAM_Error_Access_Out_Of_Bounds;
+  }
+
+  ram->raw[addr] = value;
+  return Aet_RAM_Error_None;
+}
+
+Aet_RAM_Error aet_ram_write_u16(Aet_RAM *ram, u32 addr, u16 value) {
+  usize size = sizeof(u16);
+  if (addr >= ram->cap || ram->cap - addr < size) {
+    return Aet_RAM_Error_Access_Out_Of_Bounds;
+  }
+
+  ram->raw[addr] = (byte)(value & 0xff);
+  ram->raw[addr + 1] = (byte)((value >> 8) & 0xff);
+  return Aet_RAM_Error_None;
+}
+
 Aet_RAM_Error aet_ram_write_u32(Aet_RAM *ram, u32 addr, u32 value) {
-  if (addr + 3 >= AET_RAM_CAP) {
+  usize size = sizeof(u32);
+  if (addr >= ram->cap || ram->cap - addr < size) {
     return Aet_RAM_Error_Access_Out_Of_Bounds;
   }
 

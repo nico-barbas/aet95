@@ -33,6 +33,21 @@ i32 max_i32(i32 a, i32 b);
 u64 min_u64(u64 a, u64 b);
 
 //////////////////////////////////
+// Safe math
+//////////////////////////////////
+
+typedef enum Safe_Math_Error {
+  Safe_Math_Error_None,
+  Safe_Math_Error_Signed_Overflow,
+  Safe_Math_Error_Unsigned_Overflow,
+} Safe_Math_Error;
+
+typedef Result(i64, Safe_Math_Error) Safe_Math_I64_Result;
+
+Safe_Math_I64_Result safe_add_i64(i64 a, i64 b);
+Safe_Math_I64_Result safe_mul_i64(i64 a, i64 b);
+
+//////////////////////////////////
 // Linear algebra
 //////////////////////////////////
 typedef struct Vec2 {

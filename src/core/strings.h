@@ -5,10 +5,11 @@
 #include "core/types.h"
 
 typedef struct String {
-  Option(Allocator) allocator;
-  void *ptr;
+  rawptr ptr;
   const char *data;
   usize len;
+  bool8 is_owned;
+  bool8 is_dynamically_allocated;
 } String;
 
 typedef struct String_Builder {
@@ -22,12 +23,13 @@ typedef struct String_Reader {
   usize current;
 } String_Reader;
 
-void delete_string(String str);
+void delete_string(String str, Allocator allocator);
 
 usize c_str_len(const char *c_str);
 String from_c_str(const char *str);
 String string_slice(String src, usize lo, usize hi);
 String string_clone(String str, Allocator allocator);
+String string_clone_terminated(String str, Allocator allocator);
 bool32 string_is_terminated(String str);
 bool32 string_equal(String s1, String s2);
 // FIXME(nico): Conversion procedures need to handle overflows gracefully
