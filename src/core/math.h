@@ -51,6 +51,25 @@ Safe_Math_I64_Result safe_add_i64(i64 a, i64 b);
 Safe_Math_I64_Result safe_mul_i64(i64 a, i64 b);
 
 //////////////////////////////////
+// Geometry
+//////////////////////////////////
+typedef struct Rectangle {
+  f32 x;
+  f32 y;
+  f32 width;
+  f32 height;
+} Rectangle;
+
+typedef enum Cardinality_2D {
+  Cardinality_Top,
+  Cardinality_Right,
+  Cardinality_Bottom,
+  Cardinality_Left,
+  Cardinality_4D_MAX,
+  Cardinality_8D_MAX,
+} Cardinality_2D;
+
+//////////////////////////////////
 // Linear algebra
 //////////////////////////////////
 typedef struct Vec2 {
@@ -122,6 +141,18 @@ typedef struct Color {
     };
   };
 } Color;
+
+typedef struct Packed_Color {
+  union {
+    u8 raw[4];
+    struct {
+      u8 r;
+      u8 g;
+      u8 b;
+      u8 a;
+    };
+  };
+} Packed_Color;
 
 #define vec2_is_zero(v) ((v).x == 0.f && (v).y == 0.f)
 

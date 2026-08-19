@@ -49,23 +49,23 @@ static_assert(sizeof(usize) == sizeof(void *), "usize must be pointer-sized");
 #define ok(T, val) ((T){.ok = true, .value = (val)})
 #define err(T, err) ((T){.ok = false, .error = (err)})
 
-#define try(T, expr) try_impl_(T, (expr), concat_(try_value_, __COUNTER__))
+#define try(T, expr) try_impl_(T, (expr), concat_(try_value_, __LINE__))
 #define try_impl_(T, expr, res)                                                \
   __extension__({                                                              \
-    typeof(expr) res = (expr);                                                 \
-    if (!res.ok) {                                                             \
-      return err(T, res.error);                                                \
+    typeof(expr)(res) = (expr);                                                \
+    if (!(res).ok) {                                                           \
+      return err(T, (res).error);                                              \
     }                                                                          \
-    res.value;                                                                 \
+    (res).value;                                                               \
   })
 
 // NOTE(nico): failure is a bug, not a condition to propagate
-#define unwrap(expr) unwrap_impl_((expr), concat_(unwrap_value_, __COUNTER__))
+#define unwrap(expr) unwrap_impl_((expr), concat_(unwrap_value_, __LINE__))
 #define unwrap_impl_(expr, res)                                                \
   __extension__({                                                              \
-    typeof(expr) res = (expr);                                                 \
-    assert(res.ok);                                                            \
-    res.value;                                                                 \
+    typeof(expr)(res) = (expr);                                                \
+    assert((res).ok);                                                          \
+    (res).value;                                                               \
   })
 
 #endif

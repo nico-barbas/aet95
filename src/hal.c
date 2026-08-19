@@ -38,8 +38,11 @@ Aet_Machine_Error aet_machine_init(
   memcpy(
       machine->devices, info->devices, Aet_Device_Class_MAX * sizeof(Aet_Device)
   );
+  machine->available_devices |= 1 << Aet_Device_Class_Identity;
   machine->devices[Aet_Device_Class_Identity] = (Aet_Device){
     .data = machine,
+    .read_u32_fn = aet_identity_device_read_u32,
+    .write_u32_fn = aet_identity_device_write_u32,
   };
 
   if (aet_cpu_init(&machine->cpu) != Aet_CPU_Error_None) {
@@ -606,4 +609,26 @@ Aet_Fault aet_ram_write_u32(Aet_RAM *ram, u32 addr, u32 value) {
   ram->raw[addr + 2] = (byte)((value >> 16) & 0xff);
   ram->raw[addr + 3] = (byte)((value >> 24) & 0xff);
   return Aet_Fault_None;
+}
+
+Aet_Fault aet_identity_device_read_u32(rawptr data, u32 reg, u32 *out) {
+  if (reg != 0) {
+    return Aet_Fault_Invalid_Address;
+  }
+
+  if (data == nullptr) {
+    return Aet_Fault_Invalid_MMIO_Operation;
+  }
+
+  Aet_Machine *machine = (Aet_Machine *)data;
+  *out = (u32)machine->available_devices;
+  return Aet_Fault_None;
+}
+
+// NOTE(nico): For now this device is read-only
+Aet_Fault aet_identity_device_write_u32(rawptr data, u32 reg, u32 value) {
+  (void)data;
+  (void)reg;
+  (void)value;
+  return Aet_Fault_Invalid_MMIO_Operation;
 }

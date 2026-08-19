@@ -102,7 +102,7 @@ typedef enum Aet_Bit_Extension {
   X(Ret, "ret", 29, None)
 
 typedef enum Aet_CPU_Opcode : byte {
-#define X(name, text, opcode, ext) Aet_CPU_Opcode_##name = opcode,
+#define X(name, text, opcode, ext) Aet_CPU_Opcode_##name = (opcode),
   AET_INSTRUCTIONS(X)
 #undef X
       Aet_CPU_Opcode_MAX,
@@ -167,7 +167,7 @@ typedef struct Aet_RAM {
   X(Sensor, 2)
 
 typedef enum Aet_Device_Class {
-#define X(name, kind) Aet_Device_Class_##name = kind,
+#define X(name, kind) Aet_Device_Class_##name = (kind),
   AET_DEVICE_CLASS(X)
 #undef X
       Aet_Device_Class_MAX
@@ -230,5 +230,8 @@ Aet_Fault aet_ram_read_u32(Aet_RAM *ram, u32 addr, u32 *out);
 Aet_Fault aet_ram_write_byte(Aet_RAM *ram, u32 addr, byte value);
 Aet_Fault aet_ram_write_u16(Aet_RAM *ram, u32 addr, u16 value);
 Aet_Fault aet_ram_write_u32(Aet_RAM *ram, u32 addr, u32 value);
+
+Aet_Fault aet_identity_device_read_u32(rawptr data, u32 reg, u32 *out);
+Aet_Fault aet_identity_device_write_u32(rawptr data, u32 reg, u32 value);
 
 #endif

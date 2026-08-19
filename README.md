@@ -34,7 +34,7 @@ RISC-V like chip architecture
 
 Default for operations with immediate is signed-extended. Separate operations for unsigned are suffixed with `u`
 
-Devices are register only. They do not own part of the address space for their own memory. This means that for high I/O devices, it will probably be important to implement DMA (Direct Memory Access) to allow those devices to write directly to the main RAM.
+Devices are register only. Each one owns a small fixed page of registers at the top of the address space, but no bulk memory of its own. This means that for high I/O devices, it will probably be important to implement DMA (Direct Memory Access) to allow those devices to write directly to the main RAM.
 
 # The aet-95 ISA
 
@@ -129,22 +129,24 @@ This is also what makes the whole address space reachable. Without it, only the 
 
 ### Memory
 
-Effective address is always `rs1 + sext(imm16)`, so offsets can be negative.
+Effective address is always `rs1 + sext(imm16)`, so offsets can be negative. `MEM` below is the memory bus, not the RAM buffer — the address decides whether the access lands in RAM or in a device register. See [Address space](#address-space).
 
 | Op  | Mnemonic              | Format | Effect                          |
 | --- | --------------------- | ------ | ------------------------------- |
-| 13  | `loadb rd, rs1, imm`  | I      | `rd = sext(RAM[addr])`, 1 byte  |
-| 14  | `loadbu rd, rs1, imm` | I      | `rd = zext(RAM[addr])`, 1 byte  |
-| 15  | `loadh rd, rs1, imm`  | I      | `rd = sext(RAM[addr])`, 2 bytes |
-| 16  | `loadhu rd, rs1, imm` | I      | `rd = zext(RAM[addr])`, 2 bytes |
-| 17  | `loadw rd, rs1, imm`  | I      | `rd = RAM[addr]`, 4 bytes       |
-| 18  | `storeb rd, rs1, imm` | I      | `RAM[addr] = low byte of rd`    |
-| 19  | `storeh rd, rs1, imm` | I      | `RAM[addr] = low 2 bytes of rd` |
-| 20  | `storew rd, rs1, imm` | I      | `RAM[addr] = rd`, 4 bytes       |
+| 13  | `loadb rd, rs1, imm`  | I      | `rd = sext(MEM[addr])`, 1 byte  |
+| 14  | `loadbu rd, rs1, imm` | I      | `rd = zext(MEM[addr])`, 1 byte  |
+| 15  | `loadh rd, rs1, imm`  | I      | `rd = sext(MEM[addr])`, 2 bytes |
+| 16  | `loadhu rd, rs1, imm` | I      | `rd = zext(MEM[addr])`, 2 bytes |
+| 17  | `loadw rd, rs1, imm`  | I      | `rd = MEM[addr]`, 4 bytes       |
+| 18  | `storeb rd, rs1, imm` | I      | `MEM[addr] = low byte of rd`    |
+| 19  | `storeh rd, rs1, imm` | I      | `MEM[addr] = low 2 bytes of rd` |
+| 20  | `storew rd, rs1, imm` | I      | `MEM[addr] = rd`, 4 bytes       |
 
 `loadw` needs no signed variant — it already fills the register. Stores do not either, since they only ever truncate.
 
 Note the store operand order: `rd` is the source of the data and `rs1` is the base address, so `storew r0, r1, -4` writes `r0` to `r1 - 4`.
+
+`loadw` and `storew` are also the only two instructions that can reach a device register. The six sub-word forms are RAM-only.
 
 ### Branches
 
@@ -177,13 +179,90 @@ The `u` suffix selects an unsigned **comparison**. The branch offset itself is a
 
 **Program memory** is an array of 32-bit words, indexed directly by the program counter — `pc` counts instructions, not bytes. It is not addressable by loads and stores. There is currently no way for a program to read or modify its own code.
 
-**Data RAM** is a flat, byte-addressed, zero-initialised buffer whose size is set per machine when the RAM is created. It is little-endian: `storew 0x11223344` at address 0 puts `0x44` at byte 0. There is no alignment requirement — a word access at an odd address is legal and costs the same.
+### Address space
 
-Every access is bounds-checked against the machine's RAM size, including accesses that would straddle the end of the buffer. Anything out of range raises `Invalid_Memory_Access` and leaves RAM untouched.
+Loads and stores go through the **memory bus**, which decodes the address into one of three regions:
+
+| Range                              | Contents                      |
+| ---------------------------------- | ----------------------------- |
+| `0x00000000` .. `ram_byte_cap - 1` | Data RAM                      |
+| `ram_byte_cap` .. `0xffff7fff`     | Unmapped                      |
+| `0xffff8000` .. `0xffffffff`       | MMIO — 32 KiB of device pages |
+
+The split is fixed: the MMIO window is always the top 32 KiB, whatever the machine's RAM size. RAM can therefore never grow past `0xffff8000`, and a machine asking for more fails to initialise rather than silently overlapping the device window.
+
+The unmapped hole is not an error condition in itself, just address space no one has claimed. Touching it raises `Invalid_Address` exactly like running off the end of RAM.
+
+That base address is chosen so the whole device window is reachable in one instruction. `rx0 + sext(imm16)` covers `0xffff8000`..`0xffffffff` with a negative immediate, so `loadw r0, rx0, -32768` reads the first device register without materialising an address first.
+
+### Data RAM
+
+Flat, byte-addressed, zero-initialised, its size set per machine at creation. Little-endian: `storew 0x11223344` at address 0 puts `0x44` at byte 0. There is no alignment requirement — a word access at an odd address is legal and costs the same.
+
+Every access is bounds-checked against the machine's RAM size, including accesses that would straddle the end of the buffer. Anything out of range raises `Invalid_Address` and leaves RAM untouched.
+
+### MMIO
+
+The device window is divided into fixed **64-byte pages**, one per device slot. A page holds up to 16 word-sized registers: register _n_ lives at `page_base + n * 4`, and that byte offset within the page — not the index — is what the device is handed.
+
+A slot number _is_ a device class, so a device's address is a property of what it is, not of how the machine was assembled. A program never has to discover where its motor lives; it only has to ask whether one is present.
+
+| Slot | Class      | Page base    | As `imm16` from `rx0` |
+| ---- | ---------- | ------------ | --------------------- |
+| 0    | `Identity` | `0xffff8000` | -32768                |
+| 1    | `Motor`    | `0xffff8040` | -32704                |
+| 2    | `Sensor`   | `0xffff8080` | -32640                |
+
+Slots past the last defined class are decoded but unclaimed, so most of the 32 KiB window currently faults. The region is sized for growth, not because 512 device classes are planned.
+
+Device access is deliberately narrower than RAM access:
+
+- **Word only.** `loadw` and `storew` are the only instructions that reach a device. The six sub-word forms raise `Invalid_MMIO_Operation` anywhere in the window — a device register is a register, not a byte range to slice.
+- **Aligned only.** The address must be a multiple of 4, otherwise `Misaligned_Address`. This is the one place the ISA enforces alignment; RAM stays free-form.
+- **Present only.** A slot with no defined class, or one whose device the machine does not carry, raises `Invalid_Address`.
+
+Only once all three hold does the device itself see the access, and it may still refuse — an unimplemented register or a write to a read-only one raises a fault of the device's choosing.
+
+## Devices
+
+A machine carries at most one device per class, fixed at creation. `Motor` and `Sensor` are reserved slots with no implementation behind them yet.
+
+### Identity — slot 0
+
+The one device every machine has. It cannot be omitted, and the bus wires it in whether or not the machine's spec asked for it, so a program can always count on slot 0 answering.
+
+| Reg | Address      | Access | Meaning                |
+| --- | ------------ | ------ | ---------------------- |
+| 0   | `0xffff8000` | R      | Device presence bitset |
+
+Bit _n_ of the presence bitset is set when the machine carries a device in slot _n_, so bit 0 always reads as 1. This is the entry point to the whole device story: read it once at startup and branch on what the chassis actually has, rather than hardcoding a machine layout into the program.
+
+```
+loadw r0, rx0, -32768   ; r0 = presence bitset, from 0xffff8000
+addi  r1, rx0, 2        ; bit 1 = Motor
+and   r2, r0, r1
+beq   r2, rx0, 3        ; no motor on this machine — skip the drive routine
+```
+
+Every other register on the page raises `Invalid_Address`, and the device is read-only — any `storew` to it raises `Invalid_MMIO_Operation`.
+
+## Machine configuration
+
+A machine is specified by its RAM size and its device set. Creation fails, rather than degrading, when the spec does not hold together:
+
+| Error                          | Cause                                                       |
+| ------------------------------ | ----------------------------------------------------------- |
+| `Failed_To_Initialize_RAM`     | `ram_byte_cap` above `0xffff8000`, or the allocation failed |
+| `Failed_To_Initialize_Devices` | A slot marked present supplies no read or no write handler  |
+| `Failed_To_Initialize_CPU`     | The CPU could not be brought up                             |
+
+Slot 0 is exempt from the handler check — the bus installs its own `Identity` device and overwrites whatever the spec put there.
+
+Clock speed and ISA revision belong in this spec too, and are not there yet.
 
 ## Execution model
 
-`aet_cpu_execute` runs at most `budget` instructions and returns one of:
+`aet_machine_run` runs at most `budget` instructions against the machine's bus and returns one of:
 
 - **None** — the budget was not exhausted and the program ran to completion, meaning `pc` reached `program.len`.
 - **Budget_Spent** — the budget ran out with the program still live. This is the normal path for a long-running program; call again to continue.
@@ -191,13 +270,17 @@ Every access is bounds-checked against the machine's RAM size, including accesse
 
 Every instruction costs exactly one cycle. There are no multi-cycle timings yet.
 
-| Fault                          | Raised by                                                      |
-| ------------------------------ | -------------------------------------------------------------- |
-| `Invalid_Opcode`               | An opcode byte above the defined range                         |
-| `Invalid_Next_Program_Counter` | A branch, jump, call or ret target past the end of the program |
-| `Invalid_Memory_Access`        | A load or store outside the machine's RAM                      |
-| `Divide_By_Zero`               | `div` or `divu` with a zero divisor                            |
-| `Divide_Overflow`              | `div` computing `-2147483648 / -1`                             |
+| Fault                          | Raised by                                                         |
+| ------------------------------ | ----------------------------------------------------------------- |
+| `Invalid_Opcode`               | An opcode byte above the defined range                            |
+| `Invalid_Next_Program_Counter` | A branch, jump, call or ret target past the end of the program    |
+| `Invalid_Address`              | An access outside RAM, or to an absent or undefined device slot   |
+| `Invalid_MMIO_Operation`       | A sub-word access to the device window, or a rejected device poke |
+| `Misaligned_Address`           | A device access not on a 4-byte boundary                          |
+| `Divide_By_Zero`               | `div` or `divu` with a zero divisor                               |
+| `Divide_Overflow`              | `div` computing `-2147483648 / -1`                                |
+
+The three memory faults are checked in that order for a device access: shape first (word-sized, then aligned), then whether anything answers at that address, then the device's own verdict. A sub-word load from an empty slot reports `Invalid_MMIO_Operation`, not `Invalid_Address` — the access was malformed before the question of what lives there arose.
 
 Termination is by falling off the end of the program: `pc` may legally reach `program.len` — by running past the last instruction, or by branching or returning to exactly that address — and that is a clean stop. Going beyond it faults. A finished CPU is idempotent: executing it again does nothing and returns None.
 
@@ -237,7 +320,11 @@ Deliberately deferred. Recorded so the current shape isn't mistaken for the inte
 - **No remainder or modulo.** Both division forms discard it, so it has to be recovered with a multiply and a subtract.
 - **No arithmetic shift right**, so sign-preserving division by powers of two is not expressible.
 - **No halt instruction.** Falling off the end is the only clean stop, which makes a top-level `ret` an accidental restart rather than an exit. There is also no way to distinguish "finished" from "never started" beyond inspecting `pc`.
-- **No MMIO region**, which is what the whole device story depends on.
-- **No misalignment fault.** Whether unaligned access should be free, slow, or trapping is still open.
+- **Only one real device.** `Identity` exists to exercise the bus end to end; `Motor` and `Sensor` are reserved slots with nothing behind them.
+- **No DMA.** Devices move data one word at a time through the CPU, which is fine for a motor and hopeless for anything with real I/O volume.
+- **No interrupts.** `Aet_CPU_Trap` has a single `None` member and nothing raises it, so devices cannot notify a program — polling is the only option.
+- **Devices are fixed at machine creation.** Nothing can be attached or removed while the machine runs.
+- **Misalignment traps in MMIO only.** RAM still accepts unaligned access at no cost, so the ISA now answers the alignment question two different ways depending on the address. Whether unaligned RAM access should stay free, become slow, or start trapping is still open.
+- **Device pages are uniform.** Every device gets the same 64 bytes whether it needs 1 register or 16, and there is no way for a device to claim a second page.
 
 Two mnemonics still bend the "unsigned variants are suffixed with `u`" rule stated above. `shiftr` shifts logically but carries no `u`; splitting it into `shiftr`/`shiftru` — arithmetic and logical — would settle the rule and close the missing arithmetic shift above in the same move. `loadui` carries a `u` that means **upper** rather than unsigned, which is the only overloaded use of the suffix in the ISA.

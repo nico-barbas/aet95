@@ -6,6 +6,7 @@
 #include "core/math.h"
 #include "core/platform.h"
 
+#include <assert.h>
 #include <math.h>
 
 #define INSTANCE_CAP 65536
@@ -646,7 +647,7 @@ bool32 mesh_primitive_update_from_geometry(
 
 #if defined DEBUG
 #define DEBUG_LINE_CAP 65536
-#define DEBUG_LINE_BUFFER_SIZE DEBUG_LINE_CAP * sizeof(Debug_Vertex)
+#define DEBUG_LINE_BUFFER_SIZE (DEBUG_LINE_CAP * sizeof(Debug_Vertex))
 
 static const char debug_shader[] = {
 #embed "../assets/shaders/debug.wgsl"

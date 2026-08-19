@@ -10,7 +10,8 @@
 #include "render.h"
 
 #include <assert.h>
-#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 Game_State _game = {0};
 
@@ -85,11 +86,21 @@ void init_game(void) {
 
   init_scene(&_game.scene, _game.global_allocator);
 
-  Aet_Program program = unwrap(
-      aet_assemble(from_c_str("addi r0, rx0, -0x12f"), _game.frame_allocator)
+  Aet_Machine machine = {0};
+  assert(
+      aet_machine_init(
+          &machine,
+          &(Aet_Machine_Create_Info){.ram_byte_cap = 512},
+          _game.frame_allocator
+      ) == Aet_Machine_Error_None
   );
-  String disasm = unwrap(aet_disassemble(program, _game.frame_allocator));
-  printf("%s", disasm.data);
+
+  Aet_Program program = unwrap(
+      aet_assemble(from_c_str("loadw r0, rx0, -32768"), _game.frame_allocator)
+  );
+
+  aet_cpu_load_program(&machine.cpu, program);
+  aet_machine_run(&machine, 5000);
 }
 
 void close_game(void) {

@@ -1,0 +1,7 @@
+If:
+  PathMatch: src/core/list\.h
+CompileFlags:
+  Add:
+    - -DLIST_TYPE=u8
+    - -DLIST_TYPE_NAME=Clangd_List
+    - -DLIST_FUNCTION_PREFIX=clangd_list
