@@ -22,6 +22,8 @@ typedef long long int i64;
 typedef float f32;
 typedef double f64;
 
+typedef u32 utf8_char;
+
 typedef __SIZE_TYPE__ usize;
 static_assert(sizeof(usize) == sizeof(void *), "usize must be pointer-sized");
 
@@ -55,6 +57,17 @@ static_assert(sizeof(usize) == sizeof(void *), "usize must be pointer-sized");
     typeof(expr)(res) = (expr);                                                \
     if (!(res).ok) {                                                           \
       return err(T, (res).error);                                              \
+    }                                                                          \
+    (res).value;                                                               \
+  })
+
+#define or_return(expr, return_expr)                                           \
+  or_return_impl_(expr, return_expr, concat_(or_return_value_, __LINE__))
+#define or_return_impl_(expr, return_expr, res)                                \
+  __extension__({                                                              \
+    typeof(expr)(res) = (expr);                                                \
+    if (!(res).ok) {                                                           \
+      return (return_expr);                                                    \
     }                                                                          \
     (res).value;                                                               \
   })

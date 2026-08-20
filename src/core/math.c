@@ -140,13 +140,42 @@ Safe_Math_I64_Result safe_mul_i64(i64 a, i64 b) {
 }
 
 //////////////////////////////////
+// Geometry
+//////////////////////////////////
+
+bool32 rect_point_in(Rectangle r, f32 x, f32 y) {
+  return x > r.x && x < r.x + r.width && y > r.y && y < r.y + r.height;
+}
+
+//////////////////////////////////
 // Linear algebra
 //////////////////////////////////
+Vec2 vec2(f32 x, f32 y) {
+  return (Vec2){.raw = {x, y}};
+}
+
+Vec2 vec2_add(Vec2 v1, Vec2 v2) {
+  return (Vec2){.raw = {v1.x + v2.x, v1.y + v2.y}};
+}
+
 Vec2 vec2_normalize(Vec2 v) {
   f32 il = 1.0f / sqrtf(v.x * v.x + v.y * v.y);
   return (Vec2){
     .x = v.x * il,
     .y = v.y * il,
+  };
+}
+
+Vec2 vec2_rotate_around(Vec2 v, Vec2 center, f32 angle) {
+  f32 s = sinf(angle);
+  f32 c = cosf(angle);
+  f32 dx = v.x - center.x;
+  f32 dy = v.y - center.y;
+  return (Vec2){
+    .raw = {
+      center.x + dx * c - dy * s,
+      center.y + dx * s + dy * c,
+    }
   };
 }
 
@@ -511,4 +540,16 @@ Vec4 mat4_mul_vec4(Mat4 m, Vec4 v) {
 
 Color color(f32 r, f32 g, f32 b, f32 a) {
   return (Color){.raw = {r, g, b, a}};
+}
+
+Color color_add(Color a, Color b) {
+  return (Color){.simd = a.simd + b.simd};
+}
+
+Color color_scale(Color c, f32 s) {
+  return (Color){.simd = c.simd / s};
+}
+
+Color color_lerp(Color a, Color b, f32 t) {
+  return (Color){.simd = a.simd + (b.simd - a.simd) * t};
 }

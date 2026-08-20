@@ -86,6 +86,7 @@ typedef struct Scene {
 typedef struct Game_State {
   App app;
   Renderer renderer;
+  Renderer2D renderer_2d;
 #if defined(DEBUG)
   Debug_Renderer debug_renderer;
 #endif

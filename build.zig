@@ -27,6 +27,9 @@ const c_flags = [_][]const u8{
     "-Wjump-misses-init",
     "-Wvla",
     "-Wstrict-prototypes",
+    // Backs `defer` in core/runtime.h until the bundled clang carries
+    // TS 25755. Zig 0.16 is LLVM 21, which has no -fdefer-ts.
+    "-fblocks",
 };
 
 pub fn build(b: *std.Build) void {
@@ -47,6 +50,11 @@ pub fn build(b: *std.Build) void {
     exe_mod.addIncludePath(b.path("src"));
     exe_mod.addCSourceFile(.{
         .file = b.path("src/unity.c"),
+        .flags = &c_flags,
+    });
+    // Separate TU on purpose: see the note in core/runtime.c.
+    exe_mod.addCSourceFile(.{
+        .file = b.path("src/core/runtime.c"),
         .flags = &c_flags,
     });
 
@@ -123,6 +131,7 @@ fn buildWeb(b: *std.Build, optimize: std.builtin.OptimizeMode) void {
     emcc.addArg(b.fmt("-I{s}", .{stb_dep.path("").getPath(b)}));
     emcc.addArg(b.fmt("-I{s}", .{cgltf_dep.path("").getPath(b)}));
     emcc.addFileArg(b.path("src/unity.c"));
+    emcc.addFileArg(b.path("src/core/runtime.c"));
     emcc.addFileArg(stb_impl);
     emcc.addFileArg(cgltf_impl);
     emcc.addArg("-o");

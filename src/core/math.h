@@ -69,6 +69,8 @@ typedef enum Cardinality_2D {
   Cardinality_8D_MAX,
 } Cardinality_2D;
 
+bool32 rect_point_in(Rectangle r, f32 x, f32 y);
+
 //////////////////////////////////
 // Linear algebra
 //////////////////////////////////
@@ -93,6 +95,17 @@ typedef struct Vec4 {
     };
   };
 } Vec4;
+
+typedef struct Vec3 {
+  union {
+    f32 raw[3];
+    struct {
+      f32 x;
+      f32 y;
+      f32 z;
+    };
+  };
+} Vec3;
 
 typedef struct Vec3Int {
   union {
@@ -133,6 +146,7 @@ typedef struct Mat4 {
 typedef struct Color {
   union {
     f32 raw[4];
+    f32 simd __attribute__((vector_size(16), aligned(4)));
     struct {
       f32 r;
       f32 g;
@@ -156,18 +170,10 @@ typedef struct Packed_Color {
 
 #define vec2_is_zero(v) ((v).x == 0.f && (v).y == 0.f)
 
+Vec2 vec2(f32 x, f32 y);
+Vec2 vec2_add(Vec2 v1, Vec2 v2);
 Vec2 vec2_normalize(Vec2 v);
-
-typedef struct Vec3 {
-  union {
-    f32 raw[3];
-    struct {
-      f32 x;
-      f32 y;
-      f32 z;
-    };
-  };
-} Vec3;
+Vec2 vec2_rotate_around(Vec2 v, Vec2 center, f32 angle);
 
 #define VEC3_UP ((Vec3){.raw = {0.f, 1.f, 0.f}})
 #define VEC3_DOWN ((Vec3){.raw = {0.f, -1.f, 0.f}})
@@ -228,5 +234,8 @@ Vec4 mat4_mul_vec4(Mat4 m, Vec4 v);
   ((c).r == 0.0f && (c).g == 0.0f && (c).b == 0.0f && (c).a == 0.0f)
 
 Color color(f32 r, f32 g, f32 b, f32 a);
+Color color_add(Color a, Color b);
+Color color_scale(Color c, f32 s);
+Color color_lerp(Color a, Color b, f32 t);
 
 #endif

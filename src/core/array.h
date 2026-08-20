@@ -1,8 +1,6 @@
 #ifndef CORE_ARRAY_H
 #define CORE_ARRAY_H
 
-#include "core/allocator.h"
-
 #define Array(T)                                                               \
   struct {                                                                     \
     Allocator allocator;                                                       \

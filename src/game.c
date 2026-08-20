@@ -4,6 +4,7 @@
 #include "core/allocator.h"
 #include "core/camera.h"
 #include "core/log.h"
+#include "core/math.h"
 #include "core/platform.h"
 #include "core/strings.h"
 #include "db.h"
@@ -81,8 +82,15 @@ void init_game(void) {
       _game.global_allocator
   );
 
-  bool32 db_ok = init_database(&_game.renderer);
+  bool32 db_ok = init_database(&_game.renderer, _game.global_allocator);
   assert(db_ok);
+
+  init_renderer_2d(
+      &_game.renderer_2d,
+      _db.font_table[Font_ID_IBM_Default],
+      from_c_str(""),
+      _game.global_allocator
+  );
 
   init_scene(&_game.scene, _game.global_allocator);
 
@@ -385,4 +393,16 @@ void render_game(void) {
   );
 
   end_render(&_game.renderer);
+
+  begin_render_2d(
+      &_game.renderer_2d,
+      (f32)_game.app.window_width,
+      (f32)_game.app.window_height
+  );
+
+  draw_rect(
+      &_game.renderer_2d, (Rectangle){100, 100, 100, 100}, color(1, 0, 0, 1)
+  );
+
+  end_render_2d(&_game.renderer_2d);
 }

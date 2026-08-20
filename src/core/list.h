@@ -34,6 +34,7 @@ typedef enum List_Error {
 
 #define MAKE_RESULT CONCAT(LIST_TYPE_NAME, _Make_Result)
 #define PUSH_RESULT CONCAT(LIST_TYPE_NAME, _Push_Result)
+#define LIST_TYPE_OPTION CONCAT(LIST_TYPE_NAME, _Pop_Option)
 
 typedef struct LIST_TYPE_NAME {
   Allocator allocator;
@@ -44,6 +45,7 @@ typedef struct LIST_TYPE_NAME {
 
 typedef Result(LIST_TYPE_NAME, List_Error) MAKE_RESULT;
 typedef Result(usize, List_Error) PUSH_RESULT;
+typedef Option(LIST_TYPE) LIST_TYPE_OPTION;
 
 static inline MAKE_RESULT
 CONCAT(make_, LIST_FUNCTION_PREFIX)(usize cap, Allocator allocator) {
@@ -108,7 +110,7 @@ LIST_FUNCTION(_reserve)(LIST_TYPE_NAME *list, usize new_cap) {
 }
 
 static inline PUSH_RESULT
-LIST_FUNCTION(_push)(LIST_TYPE_NAME *list, LIST_TYPE item) {
+LIST_FUNCTION(_push)(LIST_TYPE_NAME *list, LIST_TYPE *item) {
   if (list->len >= list->cap) {
     usize new_cap = list->cap == 0 ? DEFAULT_LIST_SIZE : list->cap * 2;
 
@@ -118,10 +120,19 @@ LIST_FUNCTION(_push)(LIST_TYPE_NAME *list, LIST_TYPE item) {
   }
 
   usize i = list->len;
-  list->items[list->len++] = item;
+  list->items[list->len++] = *item;
   return ok(PUSH_RESULT, i);
 }
 
+static inline LIST_TYPE_OPTION LIST_FUNCTION(_pop)(LIST_TYPE_NAME *list) {
+  if (list->len == 0) {
+    return none(LIST_TYPE_OPTION);
+  }
+
+  return some(LIST_TYPE_OPTION, list->items[--list->len]);
+}
+
+#undef LIST_TYPE_OPTION
 #undef PUSH_RESULT
 #undef MAKE_RESULT
 #undef LIST_FUNCTION

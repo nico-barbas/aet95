@@ -23,9 +23,11 @@
 -Wpointer-arith
 -Wswitch-enum
 -Wuninitialized
--Wstack-protector -fstack-protector-strong
+-Wstack-protector
+-fstack-protector-strong
 -Warray-bounds
 -Wjump-misses-init
 -Wvla
 -Wstrict-prototypes
 -Wimplicit-fallthrough
+-fblocks
