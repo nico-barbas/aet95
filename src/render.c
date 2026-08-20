@@ -879,45 +879,39 @@ void draw_quad(
   f32 w = (f32)texture.width;
   f32 h = (f32)texture.height;
 
+  f32 texture_index = (f32)id;
   Vec2 uv_min = vec2(src_rect.x / w, src_rect.y / h);
   Vec2 uv_max = vec2(
       (src_rect.x + src_rect.width) / w, (src_rect.y + src_rect.height) / h
   );
 
-  f32 half_w = rect.width * 0.5f;
-  f32 half_h = rect.height * 0.5f;
-  Vec2 p = vec2(rect.x, rect.y);
-  Vec2 center = vec2(rect.x + half_w, rect.y + half_h);
-
-  f32 texture_index = (f32)id;
-
   Vertex2D tl = {
-    .position = vec2_rotate_around(
-        vec2_add(p, vec2(-half_w, -half_h)), center, rotation
-    ),
     .tex_coord = vec3(uv_min.x, uv_min.y, texture_index),
     .color = color,
   };
   Vertex2D tr = {
-    .position = vec2_rotate_around(
-        vec2_add(p, vec2(half_w, -half_h)), center, rotation
-    ),
     .tex_coord = vec3(uv_max.x, uv_min.y, texture_index),
     .color = color,
   };
   Vertex2D bl = {
-    .position = vec2_rotate_around(
-        vec2_add(p, vec2(-half_w, half_h)), center, rotation
-    ),
     .tex_coord = vec3(uv_min.x, uv_max.y, texture_index),
     .color = color,
   };
   Vertex2D br = {
-    .position =
-        vec2_rotate_around(vec2_add(p, vec2(half_w, half_h)), center, rotation),
     .tex_coord = vec3(uv_max.x, uv_max.y, texture_index),
     .color = color,
   };
+
+  if (rotation == 0.f) {
+    tl.position = vec2(rect.x, rect.y);
+    tr.position = vec2(rect.x + rect.width, rect.y);
+    bl.position = vec2(rect.x, rect.y + rect.height);
+    br.position = vec2(rect.x + rect.width, rect.y + rect.height);
+  } else {
+    // f32 half_w = rect.width * 0.5f;
+    // f32 half_h = rect.height * 0.5f;
+    // Vec2 center = vec2(rect.x + half_w, rect.y + half_h);
+  }
 
   draw_triangle(renderer, tl, tr, bl);
   draw_triangle(renderer, tr, br, bl);
