@@ -754,6 +754,21 @@ void init_renderer_2d(
         .vertex_attribute_count = 3,
         .vertex_stride = sizeof(Vertex2D),
         .depth_test = false,
+        .blend_state =
+            &(GPU_Blend_State){
+              .color =
+                  {
+                    .operation = GPU_Blend_Op_Add,
+                    .src_factor = GPU_Blend_Factor_Src_Alpha,
+                    .dst_factor = GPU_Blend_Factor_One_Minus_Src_Alpha,
+                  },
+              .alpha =
+                  {
+                    .operation = GPU_Blend_Op_Add,
+                    .src_factor = GPU_Blend_Factor_One,
+                    .dst_factor = GPU_Blend_Factor_One_Minus_Src_Alpha,
+                  },
+            },
         .bind_groups = ARRAY_LIT(
             GPU_Bind_Group_Create_Info,
             {
@@ -856,6 +871,51 @@ void end_render_2d(Renderer2D *renderer) {
   renderer->cpu_vertex_count = 0;
 }
 
+// FIXME(nico): No support for utf8
+void draw_text(Renderer2D *renderer, String text, Vec2 origin, Color color) {
+  Font_Atlas *font = &renderer->font;
+
+  f32 x = origin.x;
+  f32 y = origin.y + font->ascent;
+
+  for (usize i = 0; i < text.len; i += 1) {
+    char c = text.data[i];
+    if (c == '\n') {
+      x = origin.x;
+      y += font->line_height;
+    }
+
+    Font_Glyph_Option glyph_opt = font_atlas_get_glyph(font, (utf8_char)c);
+    if (!glyph_opt.some) {
+      continue;
+    }
+
+    Font_Glyph glyph = glyph_opt.value;
+    if (glyph.dimensions.x > 0 && glyph.dimensions.y > 0) {
+      draw_quad(
+          renderer,
+          (Rectangle){
+            .x = x + glyph.offset.x,
+            .y = y + glyph.offset.y,
+            .width = glyph.dimensions.x,
+            .height = glyph.dimensions.y
+          },
+          Renderer2D_Atlas_Font,
+          (Rectangle){
+            .x = glyph.bound_min.x,
+            .y = glyph.bound_min.y,
+            .width = glyph.bound_max.x - glyph.bound_min.x,
+            .height = glyph.bound_max.y - glyph.bound_min.y,
+          },
+          0.f,
+          color
+      );
+    }
+
+    x += glyph.advance;
+  }
+}
+
 void draw_rect(Renderer2D *renderer, Rectangle rect, Color color) {
   draw_quad(
       renderer,
@@ -908,9 +968,8 @@ void draw_quad(
     bl.position = vec2(rect.x, rect.y + rect.height);
     br.position = vec2(rect.x + rect.width, rect.y + rect.height);
   } else {
-    // f32 half_w = rect.width * 0.5f;
-    // f32 half_h = rect.height * 0.5f;
-    // Vec2 center = vec2(rect.x + half_w, rect.y + half_h);
+    assert(false);
+    // NOTE(nico): fuck that, I don't need it for now
   }
 
   draw_triangle(renderer, tl, tr, bl);

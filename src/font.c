@@ -106,7 +106,12 @@ make_font_atlas_from_file(String path, f32 size, Allocator allocator) {
   font.gpu_texture = make_gpu_texture(&(GPU_Texture_Create_Info){
     .space = GPU_Texture_Space_sRGB,
     .kind = GPU_Texture_Create_Info_Raw_Memory,
-    .raw = {.data = rgba, .width = 1, .height = 1, .channels = 4},
+    .raw = {
+      .data = rgba,
+      .width = ATLAS_DIMENSION,
+      .height = ATLAS_DIMENSION,
+      .channels = 4
+    },
   });
   if (!gpu_texture_is_valid(font.gpu_texture)) {
     return err(Font_Atlas_Create_Result, Font_Error_Failed_To_Load_Font);
@@ -127,6 +132,8 @@ make_font_atlas_from_file(String path, f32 size, Allocator allocator) {
   font.descent = (f32)raw_descent * scale;
   font.line_gap = (f32)raw_line_gap * scale;
   font.line_height = font.ascent - font.descent + font.line_gap;
+  font.first_codepoint = FIRST_ASCII_CODEPOINT;
+  font.last_codepoint = LAST_ASCII_CODEPOINT;
 
   font.glyphs = make_array(font.glyphs, ASCII_CODEPOINT_COUNT, allocator);
   if (font.glyphs.items == nullptr) {

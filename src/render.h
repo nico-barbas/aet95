@@ -232,6 +232,7 @@ void destroy_renderer_2d(Renderer2D *renderer);
 void begin_render_2d(Renderer2D *renderer, f32 render_w, f32 render_h);
 void end_render_2d(Renderer2D *renderer);
 
+void draw_text(Renderer2D *renderer, String text, Vec2 origin, Color color);
 void draw_rect(Renderer2D *renderer, Rectangle rect, Color color);
 void draw_quad(
     Renderer2D *renderer,

@@ -400,8 +400,14 @@ void render_game(void) {
       (f32)_game.app.window_height
   );
 
-  draw_rect(
-      &_game.renderer_2d, (Rectangle){100, 100, 100, 100}, color(1, 0, 0, 1)
+  // draw_rect(
+  //     &_game.renderer_2d, (Rectangle){100, 100, 100, 100}, color(1, 0, 0, 1)
+  // );
+  draw_text(
+      &_game.renderer_2d,
+      from_c_str("hello world"),
+      vec2(100, 100),
+      color(1, 1, 1, 1)
   );
 
   end_render_2d(&_game.renderer_2d);
