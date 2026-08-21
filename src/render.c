@@ -852,12 +852,12 @@ void end_render_2d(Renderer2D *renderer) {
   gpu_buffer_write(
       renderer->gpu_vertices,
       renderer->cpu_vertices.items,
-      renderer->cpu_vertices.len * sizeof(Vertex2D)
+      renderer->cpu_vertex_count * sizeof(Vertex2D)
   );
   gpu_buffer_write(
       renderer->gpu_indices,
       renderer->cpu_indices.items,
-      renderer->cpu_indices.len * sizeof(u32)
+      renderer->cpu_vertex_count * sizeof(u32)
   );
 
   gpu_render_pass_draw_indexed(

@@ -415,7 +415,7 @@ typedef struct Element_Context_Create_Info {
 Element_Error init_element_context(
     Element_Context *ctx, Element_Context_Create_Info *info, Allocator allocator
 );
-Element_Error close_element_context(Element_Context *ctx);
+Element_Error destroy_element_context(Element_Context *ctx);
 
 void set_context_current(Element_Context *ctx);
 void set_screen_state(Element_Context *ctx, Element_Dimensions dimensions);
@@ -438,7 +438,7 @@ void end_element();
 Element_Client_Info get_current_element();
 
 #define ELEMENT_CALLSITE                                                       \
-  ((u32)(uintptr)__FILE__ * 0x9E3779B97F4A7C15u ^ (u32)__LINE__)
+  ((u32)((u32)(uintptr)__FILE__ * 0x9E3779B97F4A7C15u ^ (u32)__LINE__))
 #define begin_element(info, flags)                                             \
   begin_element_impl(info, flags, ELEMENT_CALLSITE)
 
@@ -446,44 +446,86 @@ Element_Client_Info get_current_element();
 #define UI_CONCAT(a, b) UI_CONCAT_RAW(a, b)
 #define UI_ONCE UI_CONCAT(_once_, __LINE__)
 
-#define container(info)                                                                                                                                      \
-  for (                                                                                                                                                      \
-      u8 UI_ONCE = (begin_element(info, ((info)->override_flags | Element_Flag_Visible | Element_Flag_Render_Background)), 0); !UI_ONCE; \ UI_ONCE =         \
-                                                                                                                                             (end_element(), \
-                                                                                                                                              1))
+#define container(info)                                                        \
+  for (u8 UI_ONCE =                                                            \
+           (begin_element(                                                     \
+                info,                                                          \
+                ((info)->override_flags | Element_Flag_Visible |               \
+                 Element_Flag_Render_Background)                               \
+            ),                                                                 \
+            0);                                                                \
+       !UI_ONCE;                                                               \
+       UI_ONCE = (end_element(), 1))
 
-#define label(info)                                                                                                                                                                     \
-  for (                                                                                                                                                                                 \
-      u8 UI_ONCE = (begin_element(info, ((info)->override_flags | Element_Flag_Visible | Element_Flag_Render_Background | Element_Flag_Render_Text)), 0); !UI_ONCE; \ UI_ONCE =         \
-                                                                                                                                                                        (end_element(), \
-                                                                                                                                                                         1))
+#define label(info)                                                            \
+  for (u8 UI_ONCE =                                                            \
+           (begin_element(                                                     \
+                info,                                                          \
+                ((info)->override_flags | Element_Flag_Visible |               \
+                 Element_Flag_Render_Background | Element_Flag_Render_Text)    \
+            ),                                                                 \
+            0);                                                                \
+       !UI_ONCE;                                                               \
+       UI_ONCE = (end_element(), 1))
 
-#define button(info)                                                                                                                                                                    \
-  for (                                                                                                                                                                                 \
-      u8 UI_ONCE = (begin_element(info, ((info)->override_flags | Element_Flag_Visible | Element_Flag_Interactive | Element_Flag_Render_Background)), 0); !UI_ONCE; \ UI_ONCE =         \
-                                                                                                                                                                        (end_element(), \
-                                                                                                                                                                         1))
+#define button(info)                                                           \
+  for (u8 UI_ONCE =                                                            \
+           (begin_element(                                                     \
+                info,                                                          \
+                ((info)->override_flags | Element_Flag_Visible |               \
+                 Element_Flag_Interactive | Element_Flag_Render_Background)    \
+            ),                                                                 \
+            0);                                                                \
+       !UI_ONCE;                                                               \
+       UI_ONCE = (end_element(), 1))
 
-#define image(info)                                                                                                                                     \
-  for (                                                                                                                                                 \
-      u8 UI_ONCE = (begin_element(info, ((info)->override_flags | Element_Flag_Visible | Element_Flag_Render_Image)), 0); !UI_ONCE; \ UI_ONCE =         \
-                                                                                                                                        (end_element(), \
-                                                                                                                                         1))
+#define image(info)                                                            \
+  for (u8 UI_ONCE =                                                            \
+           (begin_element(                                                     \
+                info,                                                          \
+                ((info)->override_flags | Element_Flag_Visible |               \
+                 Element_Flag_Render_Image)                                    \
+            ),                                                                 \
+            0);                                                                \
+       !UI_ONCE;                                                               \
+       UI_ONCE = (end_element(), 1))
 
-#define image_interactive(info)                                                                                                                                                    \
-  for (                                                                                                                                                                            \
-      u8 UI_ONCE = (begin_element(info, ((info)->override_flags | Element_Flag_Visible | Element_Flag_Interactive | Element_Flag_Render_Image)), 0); !UI_ONCE; \ UI_ONCE =         \
-                                                                                                                                                                   (end_element(), \
-                                                                                                                                                                    1))
+#define image_interactive(info)                                                \
+  for (u8 UI_ONCE =                                                            \
+           (begin_element(                                                     \
+                info,                                                          \
+                ((info)->override_flags | Element_Flag_Visible |               \
+                 Element_Flag_Interactive | Element_Flag_Render_Image)         \
+            ),                                                                 \
+            0);                                                                \
+       !UI_ONCE;                                                               \
+       UI_ONCE = (end_element(), 1))
 
-#undef UI_ONCE
-#undef UI_CONCAT
-#undef UI_CONCAT_RAW
+// #undef UI_ONCE
+// #undef UI_CONCAT
+// #undef UI_CONCAT_RAW
 
 // #define CLR_TRANSPARENT ((Element_Color){0, 0, 0, 0})
 // #define CLR_WHITE ((Element_Color){1, 1, 1, 1})
 // #define CLR_BLACK ((Element_Color){0, 0, 0, 1})
 // #define CLR_RED ((Element_Color){1, 0, 0, 1})
+
+static inline Element_Sizing element_sizing_fixed(f32 value) {
+  return (Element_Sizing){.kind = Element_Sizing_Fixed, .value = value};
+}
+
+static inline Element_Sizing element_sizing_grow() {
+  return (Element_Sizing){.kind = Element_Sizing_Grow};
+}
+
+static inline Element_Sizing element_sizing_fit() {
+  return (Element_Sizing){.kind = Element_Sizing_Fit};
+}
+
+static inline Element_Constraint
+element_constraint(f32 l, f32 r, f32 t, f32 b) {
+  return (Element_Constraint){.left = l, .right = r, .top = t, .bottom = b};
+}
 
 ////////////////////
 // Static asserts

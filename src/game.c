@@ -3,12 +3,15 @@
 #include "asm.h"
 #include "core/allocator.h"
 #include "core/camera.h"
+#include "core/imgui.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/platform.h"
 #include "core/strings.h"
 #include "db.h"
+#include "font.h"
 #include "render.h"
+#include "ui.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -16,6 +19,9 @@
 
 Game_State _game = {0};
 
+/////////////////////////////
+// Game specific helpers
+/////////////////////////////
 static bool32 parse_window_backend_env(App_Window_Backend *out) {
 #if defined(PLATFORM_WEB)
   *out = App_Window_Backend_Auto;
@@ -42,6 +48,23 @@ static bool32 parse_window_backend_env(App_Window_Backend *out) {
 #endif
 }
 
+static Element_Dimensions
+measure_texture_wrapper(Element_Font el_font, String text) {
+  Font_Atlas *font = (Font_Atlas *)el_font.data;
+
+  // NOTE(nico): This is suboptimal but with no font cache, this is annoying to
+  // deal with and I'd rather have a hardcrash for now
+  if (el_font.size != font->line_height) {
+    assert(false);
+  }
+
+  Vec2 dim = font_atlas_measure_texture(font, text);
+  return (Element_Dimensions){.width = dim.x, .height = dim.y};
+}
+
+////////////////////////////////////
+// Actual game code
+////////////////////////////////////
 void init_game(void) {
   _game.version = from_c_str("0.0.1-a");
   _game.global_allocator = heap_allocator();
@@ -93,6 +116,13 @@ void init_game(void) {
   );
 
   init_scene(&_game.scene, _game.global_allocator);
+  init_element_context(
+      &_game.el_ctx,
+      &(Element_Context_Create_Info){
+        .measure_text_proc = measure_texture_wrapper
+      },
+      _game.global_allocator
+  );
 
   Aet_Machine machine = {0};
   assert(
@@ -112,7 +142,9 @@ void init_game(void) {
 }
 
 void close_game(void) {
+  destroy_element_context(&_game.el_ctx);
   destroy_renderer(&_game.renderer);
+  destroy_renderer_2d(&_game.renderer_2d);
   destroy_debug_renderer(&_game.debug_renderer);
 
   _game.global_allocator.free(_game.global_allocator, _game.frame_arena.buf);
@@ -400,15 +432,11 @@ void render_game(void) {
       (f32)_game.app.window_height
   );
 
-  // draw_rect(
-  //     &_game.renderer_2d, (Rectangle){100, 100, 100, 100}, color(1, 0, 0, 1)
-  // );
-  draw_text(
-      &_game.renderer_2d,
-      from_c_str("hello world"),
-      vec2(100, 100),
-      color(1, 1, 1, 1)
-  );
+  begin_ui(&_game.el_ctx);
+  game_view(&_game);
+  Element_Render_Command_Buffer cmds = end_ui(&_game.el_ctx);
+
+  render_game_view(&_game.renderer_2d, cmds);
 
   end_render_2d(&_game.renderer_2d);
 }

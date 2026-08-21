@@ -50,7 +50,7 @@ static bool32 element_id_eq(void *h1, void *h2) {
   u64 *_h1 = (u64 *)h1;
   u64 *_h2 = (u64 *)h2;
 
-  return _h1 == _h2;
+  return *_h1 == *_h2;
 }
 
 static u64 element_get_handle(Element *element) {
@@ -135,10 +135,10 @@ static Element_Internal_Style element_style_to_internal(Element_Style *style) {
 
 // NOTE(nico): This is honestly cursed
 static Element_Computed_Properties process_element_computed_properties(
-    Element_Internal_Style *style, Element_Cached_Info *cache, Element_State s
+    Element_Internal_Style *style, Element_Cached_Info *cache
 ) {
   if (cache == nullptr) {
-    s = Element_State_Enter;
+    Element_State s = Element_State_Enter;
 
     return (Element_Computed_Properties){
       .linears =
@@ -186,7 +186,12 @@ static Element_Computed_Properties process_element_computed_properties(
     };
   }
 
-  f32 t = 0.f;
+  Element_State s = cache->target_state;
+  f32 t = style->transitions[s].duration > 0.f
+              ? min_f32(
+                    cache->transition_time / style->transitions[s].duration, 1.f
+                )
+              : 1.f;
 
   Element_Computed_Properties result = {
     .linears =
@@ -308,28 +313,28 @@ static void process_element(Element *element) {
 
   if (cache == nullptr) {
     Element_State s = Element_State_Enter;
-    Element_Cached_Info new_info = {
+    Element_Cached_Info new_cache = {
       .computed_rect = element->computed_rect,
       .last_touched = _ctx->frame_counter,
       .target_state = s,
     };
 
     for (usize i = 0; i < LINEAR_PROPERTIES_CAP; i += 1) {
-      new_info.linear_properties[i] = element->style.linear_properties[i][s];
+      new_cache.linear_properties[i] = element->style.linear_properties[i][s];
     }
     for (usize i = 0; i < COLOR_PROPERTIES_CAP; i += 1) {
-      new_info.color_properties[i] = element->style.color_properties[i][s];
+      new_cache.color_properties[i] = element->style.color_properties[i][s];
     }
     for (usize i = 0; i < VARIABLE_COLOR_PROPERTIES_CAP; i += 1) {
-      new_info.variable_color_properties[i] =
+      new_cache.variable_color_properties[i] =
           element->style.variable_color_properties[i][s];
     }
     for (usize i = 0; i < CONSTRAINT_PROPERTIES_CAP; i += 1) {
-      new_info.constraint_properties[i] =
+      new_cache.constraint_properties[i] =
           element->style.constraint_properties[i][s];
     }
 
-    open_map_set(_ctx->element_cache, handle, new_info);
+    open_map_set(_ctx->element_cache, handle, new_cache);
     cache = open_map_get(_ctx->element_cache, handle);
   }
 
@@ -344,51 +349,51 @@ static void process_element(Element *element) {
 }
 
 static Element_Events
-process_element_events(Element *element, Element_Cached_Info *cached_info) {
+process_element_events(Element *element, Element_Cached_Info *cache) {
+  cache->last_touched = _ctx->frame_counter;
+  cache->transition_time = max_f32(
+      cache->transition_time + _ctx->dt,
+      element->style.transitions[cache->target_state].duration
+  );
+
   if (element->flags & Element_Flag_Ignore_Events) {
     return 0;
   }
-
-  cached_info->last_touched = _ctx->frame_counter;
 
   bool32 hovered =
       rect_point_in(element->computed_rect, _ctx->m_pos.x, _ctx->m_pos.y);
   _ctx->m_over_ui |= hovered;
 
-  cached_info->previous_events = cached_info->events;
-  cached_info->events = 0;
+  cache->previous_events = cache->events;
+  cache->events = 0;
 
   if (hovered) {
-    cached_info->events |= Element_Event_Hovered;
+    cache->events |= Element_Event_Hovered;
   }
 
   if (element->flags & Element_Flag_Interactive && hovered) {
     // NOTE(nico): This is weird, only left click make an element active?
     if (_ctx->m_left.just_pressed) {
       _ctx->active_element = element;
-      cached_info->events |= Element_Event_Left_Clicked;
+      cache->events |= Element_Event_Left_Clicked;
     }
 
     if (_ctx->m_right.just_pressed) {
-      cached_info->events |= Element_Event_Right_Clicked;
+      cache->events |= Element_Event_Right_Clicked;
     }
   }
 
-  cached_info->transition_time = max_f32(
-      cached_info->transition_time + _ctx->dt,
-      element->style.transitions[cached_info->target_state].duration
-  );
-
   // TODO(nico): Handle Drag and Input
   Element_State previous_state =
-      element_state_derive_from_events(cached_info->previous_events);
-  Element_State state = element_state_derive_from_events(cached_info->events);
+      element_state_derive_from_events(cache->previous_events);
+  Element_State state = element_state_derive_from_events(cache->events);
 
   if (state != previous_state) {
-    cached_info->target_state = state;
+    cache->target_state = state;
+    cache->transition_time = 0.f;
   }
 
-  return cached_info->events;
+  return cache->events;
 }
 
 static void
@@ -397,9 +402,8 @@ process_element_commands(Element *element, Element_Cached_Info *cached_info) {
     return;
   }
 
-  Element_Computed_Properties style = process_element_computed_properties(
-      &element->style, cached_info, cached_info->target_state
-  );
+  Element_Computed_Properties style =
+      process_element_computed_properties(&element->style, cached_info);
 
   if (element->flags & Element_Flag_Render_Background) {
     element_render_list_push(
@@ -424,6 +428,7 @@ process_element_commands(Element *element, Element_Cached_Info *cached_info) {
           .kind = Element_Render_Command_Text,
           .text = {
             .origin = vec2(element->computed_rect.x, element->computed_rect.y),
+            .chars = element->text,
             .font =
                 {
                   .data = element->style.font_data,
@@ -461,9 +466,8 @@ static void calculate_element_size(Element *element) {
   Element_Cached_Info *cache = open_map_get(_ctx->element_cache, handle);
   // NOTE(nico): how the fuck is this not crashing on the first frame
 
-  Element_Computed_Properties style = process_element_computed_properties(
-      &element->style, cache, cache->target_state
-  );
+  Element_Computed_Properties style =
+      process_element_computed_properties(&element->style, cache);
   Element_Constraint padding = style.constraints.padding;
 
   // NOTE(nico): All the calculation based on animations is absolutely cursed
@@ -673,9 +677,8 @@ static void layout_children(Element *element) {
   u64 handle = element_get_handle(element);
   Element_Cached_Info *cache = open_map_get(_ctx->element_cache, handle);
 
-  Element_Computed_Properties style = process_element_computed_properties(
-      &element->style, cache, cache->target_state
-  );
+  Element_Computed_Properties style =
+      process_element_computed_properties(&element->style, cache);
   Element_Constraint padding = style.constraints.padding;
 
   f32 start_x = element->computed_rect.x + padding.left;
@@ -890,7 +893,7 @@ Element_Error init_element_context(
   return Element_Error_None;
 }
 
-Element_Error close_element_context(Element_Context *ctx) {
+Element_Error destroy_element_context(Element_Context *ctx) {
   delete_element_list(&ctx->elements);
   delete_element_ptr_list(&ctx->element_roots);
   delete_element_ptr_list(&ctx->element_stack);

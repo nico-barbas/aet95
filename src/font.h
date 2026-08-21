@@ -61,5 +61,6 @@ Font_Atlas_Create_Result
 make_font_atlas_from_file(String path, f32 size, Allocator allocator);
 
 Font_Glyph_Option font_atlas_get_glyph(Font_Atlas *font, utf8_char c);
+Vec2 font_atlas_measure_texture(Font_Atlas *font, String text);
 
 #endif

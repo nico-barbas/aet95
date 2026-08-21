@@ -167,3 +167,28 @@ Font_Glyph_Option font_atlas_get_glyph(Font_Atlas *font, utf8_char c) {
   u32 index = (u32)c - font->first_codepoint;
   return some(Font_Glyph_Option, array_get(font->glyphs, index));
 }
+
+Vec2 font_atlas_measure_texture(Font_Atlas *font, String text) {
+  f32 w = 0.f;
+  f32 h = font->ascent;
+
+  f32 current_w = 0.f;
+  for (usize i = 0; i < text.len; i += 1) {
+    char c = text.data[i];
+    if (c == '\n') {
+      w = max_f32(w, current_w);
+      h += font->line_height;
+      current_w = 0.f;
+    }
+
+    Font_Glyph_Option glyph_opt = font_atlas_get_glyph(font, (utf8_char)c);
+    if (!glyph_opt.some) {
+      continue;
+    }
+
+    Font_Glyph glyph = glyph_opt.value;
+    current_w += glyph.advance;
+  }
+
+  return vec2(max_f32(w, current_w), h);
+}

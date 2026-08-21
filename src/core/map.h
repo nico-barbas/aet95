@@ -13,13 +13,17 @@ typedef enum Open_Map_Slot_State {
   Open_Map_Slot_State_Tombstone,
 } Open_Map_Slot_State;
 
+// NOTE(nico): a slot is laid out as [state][pad][key][pad][value][pad]. Both
+// payload offsets are baked at init so no accessor has to guess the padding
 typedef struct Open_Map_Header {
   usize len;
   usize cap;
   usize key_size;
   usize key_align;
+  usize key_offset;
   usize value_size;
   usize value_align;
+  usize value_offset;
   usize slot_size;
   Allocator allocator;
   Open_Map_Hash_Proc hash;
@@ -29,7 +33,14 @@ typedef void *Open_Map;
 
 #define make_open_map(K, V, cap, hash_proc, eq_proc, allocator)                \
   open_map_init(                                                               \
-      sizeof(K), sizeof(V), _Alignof(V), cap, hash_proc, eq_proc, allocator    \
+      sizeof(K),                                                               \
+      _Alignof(K),                                                             \
+      sizeof(V),                                                               \
+      _Alignof(V),                                                             \
+      cap,                                                                     \
+      hash_proc,                                                               \
+      eq_proc,                                                                 \
+      allocator                                                                \
   )
 #define open_map_header(m) (((Open_Map_Header *)(m)) - 1)
 #define open_map_set(m, k, v)                                                  \
@@ -52,6 +63,7 @@ typedef struct Open_Map_Iterator {
 
 Open_Map open_map_init(
     usize key_size,
+    usize key_align,
     usize value_size,
     usize value_align,
     usize cap,

@@ -5,12 +5,19 @@
 #include "core/types.h"
 #include "string.h"
 
+#include <assert.h>
+
 static usize align_up(usize n, usize align) {
   return (n + align - 1) & ~(align - 1);
 }
 
+static usize max_align(usize a, usize b) {
+  return a > b ? a : b;
+}
+
 Open_Map open_map_init(
     usize key_size,
+    usize key_align,
     usize value_size,
     usize value_align,
     usize cap,
@@ -23,9 +30,14 @@ Open_Map open_map_init(
     return ptr;
   }
 
-  usize value_offset =
-      align_up(sizeof(Open_Map_Slot_State) + key_size, value_align);
-  usize slot_size = align_up(value_offset + value_size, value_align);
+  // NOTE(nico): the key used to sit right behind the state tag, which put an
+  // 8 byte key on a 4 byte boundary and made every lookup an unaligned load
+  usize key_offset = align_up(sizeof(Open_Map_Slot_State), key_align);
+  usize value_offset = align_up(key_offset + key_size, value_align);
+  usize slot_align = max_align(
+      max_align(alignof(Open_Map_Slot_State), key_align), value_align
+  );
+  usize slot_size = align_up(value_offset + value_size, slot_align);
   usize total_size = slot_size * cap + sizeof(Open_Map_Header);
 
   Allocation_Result alloc = allocator.alloc(allocator, total_size);
@@ -40,13 +52,22 @@ Open_Map open_map_init(
   header->cap = cap;
   header->len = 0;
   header->key_size = key_size;
+  header->key_align = key_align;
+  header->key_offset = key_offset;
   header->value_size = value_size;
   header->value_align = value_align;
+  header->value_offset = value_offset;
   header->slot_size = slot_size;
   header->hash = hash_proc;
   header->key_eq = eq_proc;
 
   ptr = header + 1;
+
+  // NOTE(nico): the slots start right behind the header, so the whole layout
+  // rides on the allocator handing back a base that suits the widest payload.
+  // Both allocators give 16 and sizeof(Open_Map_Header) is a multiple of it
+  assert((uintptr)ptr % slot_align == 0);
+
   return ptr;
 }
 
@@ -55,15 +76,12 @@ void delete_open_map(Open_Map map) {
   header->allocator.free(header->allocator, header);
 }
 
-static void *open_map_get_key_ptr(void *slot) {
-  return (byte *)slot + sizeof(Open_Map_Slot_State);
+static void *open_map_get_key_ptr(void *slot, Open_Map_Header *header) {
+  return (byte *)slot + header->key_offset;
 }
 
 static void *open_map_get_value_ptr(void *slot, Open_Map_Header *header) {
-  usize value_offset = align_up(
-      sizeof(Open_Map_Slot_State) + header->key_size, header->value_align
-  );
-  return (byte *)slot + value_offset;
+  return (byte *)slot + header->value_offset;
 }
 
 Open_Map open_map_ensure_cap(Open_Map map, usize item_count) {
@@ -76,6 +94,7 @@ Open_Map open_map_ensure_cap(Open_Map map, usize item_count) {
 
   Open_Map new_map = open_map_init(
       header->key_size,
+      header->key_align,
       header->value_size,
       header->value_align,
       header->cap * 2,
@@ -92,7 +111,7 @@ Open_Map open_map_ensure_cap(Open_Map map, usize item_count) {
 
     Open_Map_Slot_State *slot_state = (Open_Map_Slot_State *)slot;
     if (*slot_state == Open_Map_Slot_State_Occupied) {
-      void *key = open_map_get_key_ptr(slot);
+      void *key = open_map_get_key_ptr(slot, header);
       void *value = open_map_get_value_ptr(slot, header);
 
       open_map_insert_kv(new_map, key, value);
@@ -120,9 +139,10 @@ bool32 open_map_insert_kv(Open_Map map, void *key, void *value) {
     bool32 is_clear_slot = *slot_state == Open_Map_Slot_State_Empty ||
                            *slot_state == Open_Map_Slot_State_Tombstone;
 
-    if (is_clear_slot || header->key_eq(key, open_map_get_key_ptr(slot))) {
+    if (is_clear_slot ||
+        header->key_eq(key, open_map_get_key_ptr(slot, header))) {
       *slot_state = Open_Map_Slot_State_Occupied;
-      memcpy((byte *)slot + sizeof(Open_Map_Slot_State), key, header->key_size);
+      memcpy(open_map_get_key_ptr(slot, header), key, header->key_size);
       memcpy(open_map_get_value_ptr(slot, header), value, header->value_size);
       header->len += is_clear_slot ? 1 : 0;
       return true;
@@ -151,7 +171,7 @@ void *internal_open_map_get(Open_Map map, void *key) {
     }
 
     if (*slot_state == Open_Map_Slot_State_Occupied &&
-        header->key_eq(key, open_map_get_key_ptr(slot))) {
+        header->key_eq(key, open_map_get_key_ptr(slot, header))) {
       return open_map_get_value_ptr(slot, header);
     }
 
@@ -183,7 +203,7 @@ bool32 open_map_has_next(Open_Map_Iterator *it) {
 void *open_map_next(Open_Map_Iterator *it) {
   Open_Map_Header *header = open_map_header(it->_map);
   void *slot = (byte *)it->_map + it->_index * header->slot_size;
-  it->key = open_map_get_key_ptr(slot);
+  it->key = open_map_get_key_ptr(slot, header);
   it->value = open_map_get_value_ptr(slot, header);
 
   it->_index += 1;
@@ -217,7 +237,7 @@ bool32 open_map_remove_raw(Open_Map map, void *key) {
     }
 
     if (*slot_state == Open_Map_Slot_State_Occupied &&
-        header->key_eq(key, open_map_get_key_ptr(slot))) {
+        header->key_eq(key, open_map_get_key_ptr(slot, header))) {
       *slot_state = Open_Map_Slot_State_Tombstone;
       header->len -= 1;
       return true;
