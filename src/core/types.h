@@ -1,6 +1,8 @@
 #ifndef CORE_TYPES_H
 #define CORE_TYPES_H
 
+#include <assert.h>
+
 typedef char bool8;
 typedef unsigned int bool32;
 
@@ -30,6 +32,22 @@ static_assert(sizeof(usize) == sizeof(void *), "usize must be pointer-sized");
 #define countof(array) (sizeof(array) / sizeof((array)[0]))
 #define concat_impl_(a, b) a##b
 #define concat_(a, b) concat_impl_(a, b)
+
+static inline u32 bitmask_from_values_u32(u32 *values, usize len) {
+  u32 mask = 0;
+
+  for (usize i = 0; i < len; i += 1) {
+    assert(values[i] < 32);
+    mask |= 1u << values[i];
+  }
+
+  return mask;
+}
+
+#define bitmask(...)                                                           \
+  bitmask_from_values_u32(                                                     \
+      (u32[]){__VA_ARGS__}, sizeof((u32[]){__VA_ARGS__}) / sizeof(unsigned)    \
+  )
 
 #define Option(type)                                                           \
   struct {                                                                     \

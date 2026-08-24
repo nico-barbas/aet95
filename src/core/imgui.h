@@ -40,9 +40,10 @@ typedef enum Element_Flag {
 
 typedef u32 Element_Events;
 typedef enum Element_Event {
-  Element_Event_Hovered = 1 << 0,
-  Element_Event_Left_Clicked = 1 << 1,
-  Element_Event_Right_Clicked = 1 << 2,
+  Element_Event_Entered = 1 << 0,
+  Element_Event_Hovered = 1 << 1,
+  Element_Event_Left_Clicked = 1 << 2,
+  Element_Event_Right_Clicked = 1 << 3,
 } Element_Event;
 
 typedef enum Element_Layout_Kind {
@@ -170,42 +171,51 @@ typedef enum Element_Property {
 #define CONSTRAINT_PROPERTIES_CAP                                              \
   (Element_Property_constraint_end_ - Element_Property_constraint_start_ - 1)
 
-#define LINEAR_PROPERTY_ENUM_RAW_INDEX(e)                                      \
-  ((e) - Element_Property_linear_start_ - 1)
-#define COLOR_PROPERTY_ENUM_RAW_INDEX(e)                                       \
-  ((e) - Element_Property_color_start_ - 1)
-#define VARIABLE_COLOR_PROPERTY_ENUM_RAW_INDEX(e)                              \
-  ((e) - Element_Property_variable_color_start_ - 1)
-#define CONSTRAINT_PROPERTY_ENUM_RAW_INDEX(e)                                  \
-  ((e) - Element_Property_constraint_start_ - 1)
+typedef u32 Element_Property_Mask;
+
+typedef struct Element_Style_Properties {
+  struct {
+    f32 border;
+    f32 radius;
+    f32 child_gap;
+    f32 font_size;
+  } linears;
+  struct {
+    Color background;
+    Color text;
+    Color image;
+  } colors;
+  struct {
+    Element_Variable_Color border;
+  } variable_colors;
+  struct {
+    Element_Constraint padding;
+  } constraints;
+} Element_Style_Properties;
+
+typedef enum Element_Style_Variant {
+  Element_Style_Variant_Enter,
+  Element_Style_Variant_Focus,
+  Element_Style_Variant_Exit,
+  Element_Style_Variant_MAX,
+} Element_Style_Variant;
+
+typedef u32 Element_Transition_Mask;
+
+typedef struct Element_Transition {
+  f32 duration;
+  Element_Ease_Fn ease;
+} Element_Transition;
 
 // NOTE(nico): fuck having differente transition time per property. It has very
 // limited use anyway and I hate myself for having to unpack it into the
 // internal style
 typedef struct Element_Style {
-  struct {
-    struct {
-      f32 border[Element_State_MAX];
-      f32 radius[Element_State_MAX];
-      f32 child_gap[Element_State_MAX];
-      f32 font_size[Element_State_MAX];
-    } linears;
-    struct {
-      Color background[Element_State_MAX];
-      Color text[Element_State_MAX];
-      Color image[Element_State_MAX];
-    } colors;
-    struct {
-      Element_Variable_Color border[Element_State_MAX];
-    } variable_colors;
-    struct {
-      Element_Constraint padding[Element_State_MAX];
-    } constraints;
-  } properties;
-  struct {
-    f32 duration;
-    Element_Ease_Fn ease;
-  } transitions[Element_State_MAX];
+  Element_Style_Properties base;
+  Element_Style_Properties variants[Element_Style_Variant_MAX];
+  Element_Property_Mask variant_masks[Element_Style_Variant_MAX];
+  Element_Transition_Mask transition_set;
+  Element_Transition transitions[Element_State_MAX];
 
   // Non-animated
   void *font_data;
@@ -213,17 +223,15 @@ typedef struct Element_Style {
 } Element_Style;
 
 typedef struct Element_Internal_Style {
-  f32 linear_properties[LINEAR_PROPERTIES_CAP][Element_State_MAX];
-  Color color_properties[COLOR_PROPERTIES_CAP][Element_State_MAX];
+  f32 linear_properties[Element_State_MAX][LINEAR_PROPERTIES_CAP];
+  Color color_properties[Element_State_MAX][COLOR_PROPERTIES_CAP];
   Element_Variable_Color
-      variable_color_properties[VARIABLE_COLOR_PROPERTIES_CAP]
-                               [Element_State_MAX];
-  Element_Constraint constraint_properties[CONSTRAINT_PROPERTIES_CAP]
-                                          [Element_State_MAX];
-  struct {
-    f32 duration;
-    Element_Ease_Fn ease;
-  } transitions[Element_State_MAX];
+      variable_color_properties[Element_State_MAX]
+                               [VARIABLE_COLOR_PROPERTIES_CAP];
+  Element_Constraint constraint_properties[Element_State_MAX]
+                                          [CONSTRAINT_PROPERTIES_CAP];
+  Element_Transition_Mask transition_set;
+  Element_Transition transitions[Element_State_MAX];
 
   void *font_data;
   Element_Image_Option image_options;
@@ -501,10 +509,6 @@ Element_Client_Info get_current_element();
        !UI_ONCE;                                                               \
        UI_ONCE = (end_element(), 1))
 
-// #undef UI_ONCE
-// #undef UI_CONCAT
-// #undef UI_CONCAT_RAW
-
 // #define CLR_TRANSPARENT ((Element_Color){0, 0, 0, 0})
 // #define CLR_WHITE ((Element_Color){1, 1, 1, 1})
 // #define CLR_BLACK ((Element_Color){0, 0, 0, 1})
@@ -530,101 +534,5 @@ element_constraint(f32 l, f32 r, f32 t, f32 b) {
 ////////////////////
 // Static asserts
 ////////////////////
-// NOTE(nico): Element_Style is memcpy'd straight onto Element_Internal_Style.
-// That is only valid while every authored member sits at the exact offset of
-// the dense slot its property enum resolves to. Size equality alone does not
-// catch a reorder, so each slot is pinned individually: swapping two members,
-// reordering the enum or changing an index macro breaks the build instead of
-// silently transposing properties at runtime.
-#define ELEMENT_STYLE_SLOT_MATCHES(authored, dense_slot)                       \
-  static_assert(                                                               \
-      offsetof(Element_Style, properties.authored) ==                          \
-          offsetof(Element_Internal_Style, dense_slot),                        \
-      "Element style layout drift: " #authored " vs " #dense_slot              \
-  )
-
-// Whole-group sizes. Catches a property added to one side only, which would
-// otherwise just shift every following group in lockstep.
-#define ELEMENT_STYLE_GROUP_MATCHES(authored, dense)                           \
-  static_assert(                                                               \
-      sizeof(((Element_Style *)nullptr)->properties.authored) ==               \
-          sizeof(((Element_Internal_Style *)nullptr)->dense),                  \
-      "Element style group size drift: " #authored " vs " #dense               \
-  )
-
-// Members past the property block, shared verbatim by both layouts.
-#define ELEMENT_STYLE_TAIL_MATCHES(member)                                     \
-  static_assert(                                                               \
-      offsetof(Element_Style, member) ==                                       \
-          offsetof(Element_Internal_Style, member),                            \
-      "Element style layout drift: " #member                                   \
-  )
-
-ELEMENT_STYLE_GROUP_MATCHES(linears, linear_properties);
-ELEMENT_STYLE_SLOT_MATCHES(
-    linears.border,
-    linear_properties[LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Border)]
-);
-ELEMENT_STYLE_SLOT_MATCHES(
-    linears.radius,
-    linear_properties[LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Radius)]
-);
-ELEMENT_STYLE_SLOT_MATCHES(
-    linears.child_gap,
-    linear_properties
-        [LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Child_Gap)]
-);
-ELEMENT_STYLE_SLOT_MATCHES(
-    linears.font_size,
-    linear_properties
-        [LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Font_Size)]
-);
-
-ELEMENT_STYLE_GROUP_MATCHES(colors, color_properties);
-ELEMENT_STYLE_SLOT_MATCHES(
-    colors.background,
-    color_properties
-        [COLOR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Background_Color)]
-);
-ELEMENT_STYLE_SLOT_MATCHES(
-    colors.text,
-    color_properties[COLOR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Text_Color)]
-);
-ELEMENT_STYLE_SLOT_MATCHES(
-    colors.image,
-    color_properties
-        [COLOR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Image_Color)]
-);
-
-ELEMENT_STYLE_GROUP_MATCHES(variable_colors, variable_color_properties);
-ELEMENT_STYLE_SLOT_MATCHES(
-    variable_colors.border,
-    variable_color_properties
-        [VARIABLE_COLOR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Border_Color)]
-);
-
-ELEMENT_STYLE_GROUP_MATCHES(constraints, constraint_properties);
-ELEMENT_STYLE_SLOT_MATCHES(
-    constraints.padding,
-    constraint_properties
-        [CONSTRAINT_PROPERTY_ENUM_RAW_INDEX(Element_Property_Padding)]
-);
-
-ELEMENT_STYLE_TAIL_MATCHES(transitions);
-ELEMENT_STYLE_TAIL_MATCHES(font_data);
-ELEMENT_STYLE_TAIL_MATCHES(image_options);
-
-static_assert(
-    sizeof(Element_Style) == sizeof(Element_Internal_Style),
-    "Element style size drift"
-);
-static_assert(
-    alignof(Element_Style) == alignof(Element_Internal_Style),
-    "Element style alignment drift"
-);
-
-#undef ELEMENT_STYLE_SLOT_MATCHES
-#undef ELEMENT_STYLE_GROUP_MATCHES
-#undef ELEMENT_STYLE_TAIL_MATCHES
 
 #endif

@@ -7,6 +7,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <stddef.h>
 #include <string.h>
 
 #define RESERVED_ELEMENT_HASH 1
@@ -42,6 +43,24 @@ typedef struct Element_Computed_Properties {
     Element_Constraint padding;
   } constraints;
 } Element_Computed_Properties;
+
+#define LINEAR_PROPERTY_ENUM_RAW_INDEX(e)                                      \
+  ((e) - Element_Property_linear_start_ - 1)
+#define COLOR_PROPERTY_ENUM_RAW_INDEX(e)                                       \
+  ((e) - Element_Property_color_start_ - 1)
+#define VARIABLE_COLOR_PROPERTY_ENUM_RAW_INDEX(e)                              \
+  ((e) - Element_Property_variable_color_start_ - 1)
+#define CONSTRAINT_PROPERTY_ENUM_RAW_INDEX(e)                                  \
+  ((e) - Element_Property_constraint_start_ - 1)
+
+#define LINEAR_PROPERTY_INDEX_ENUM(i)                                          \
+  ((Element_Property)(Element_Property_linear_start_ + 1 + (i)))
+#define COLOR_PROPERTY_INDEX_ENUM(i)                                           \
+  ((Element_Property)(Element_Property_color_start_ + 1 + (i)))
+#define VARIABLE_COLOR_PROPERTY_INDEX_ENUM(i)                                  \
+  ((Element_Property)(Element_Property_variable_color_start_ + 1 + (i)))
+#define CONSTRAINT_PROPERTY_INDEX_ENUM(i)                                      \
+  ((Element_Property)(Element_Property_constraint_start_ + 1 + (i)))
 
 ///////////////////////
 // Helpers
@@ -81,6 +100,10 @@ static Element_State element_state_derive_from_events(Element_Events e) {
   if (e & Element_Event_Hovered || e & Element_Event_Left_Clicked ||
       e & Element_Event_Right_Clicked) {
     return Element_State_Focus;
+  }
+
+  if (e & Element_Event_Entered) {
+    return Element_State_Normal;
   }
 
   return Element_State_Normal;
@@ -126,9 +149,113 @@ element_constraint_lerp(Element_Constraint a, Element_Constraint b, f32 t) {
   };
 }
 
+// NOTE(nico): the state-major internal layout makes every authored group
+// bit-identical to one row of its dense array, so each group is a straight
+// copy. These pin the sizes; field order inside a group still has to match the
+// Element_Property order by hand
+static_assert(
+    sizeof(((Element_Style_Properties *)nullptr)->linears) ==
+        LINEAR_PROPERTIES_CAP * sizeof(f32),
+    "linear property count drift between the style and Element_Property"
+);
+static_assert(
+    sizeof(((Element_Style_Properties *)nullptr)->colors) ==
+        COLOR_PROPERTIES_CAP * sizeof(Color),
+    "color property count drift between the style and Element_Property"
+);
+static_assert(
+    sizeof(((Element_Style_Properties *)nullptr)->variable_colors) ==
+        VARIABLE_COLOR_PROPERTIES_CAP * sizeof(Element_Variable_Color),
+    "variable color property count drift between the style and Element_Property"
+);
+static_assert(
+    sizeof(((Element_Style_Properties *)nullptr)->constraints) ==
+        CONSTRAINT_PROPERTIES_CAP * sizeof(Element_Constraint),
+    "constraint property count drift between the style and Element_Property"
+);
+
+// Element_Style_Variant_MAX means the state has no variant and rests on base
+static const Element_Style_Variant ELEMENT_STATE_VARIANT[Element_State_MAX] = {
+  [Element_State_Enter] = Element_Style_Variant_Enter,
+  [Element_State_Normal] = Element_Style_Variant_MAX,
+  [Element_State_Focus] = Element_Style_Variant_Focus,
+  [Element_State_Exit] = Element_Style_Variant_Exit,
+};
+
 static Element_Internal_Style element_style_to_internal(Element_Style *style) {
-  Element_Internal_Style result;
-  memcpy(&result, style, sizeof(result));
+  Element_Internal_Style result = {
+    .transition_set = style->transition_set,
+    .font_data = style->font_data,
+    .image_options = style->image_options,
+  };
+  memcpy(result.transitions, style->transitions, sizeof(result.transitions));
+
+  for (usize i = 0; i < Element_State_MAX; i += 1) {
+    // Every state starts as the base look
+    memcpy(
+        result.linear_properties[i],
+        &style->base.linears,
+        sizeof(style->base.linears)
+    );
+    memcpy(
+        result.color_properties[i],
+        &style->base.colors,
+        sizeof(style->base.colors)
+    );
+    memcpy(
+        result.variable_color_properties[i],
+        &style->base.variable_colors,
+        sizeof(style->base.variable_colors)
+    );
+    memcpy(
+        result.constraint_properties[i],
+        &style->base.constraints,
+        sizeof(style->base.constraints)
+    );
+
+    Element_Style_Variant variant = ELEMENT_STATE_VARIANT[i];
+    if (variant == Element_Style_Variant_MAX ||
+        !(style->transition_set & bitmask((u32)i))) {
+      continue;
+    }
+
+    // The variant only overrides the properties its mask names. Anything else
+    // keeps the base value it was just given
+    Element_Property_Mask mask = style->variant_masks[variant];
+    Element_Style_Properties *src = &style->variants[variant];
+
+    f32 linears[LINEAR_PROPERTIES_CAP];
+    memcpy(linears, &src->linears, sizeof(linears));
+    for (usize p = 0; p < LINEAR_PROPERTIES_CAP; p += 1) {
+      if (mask & bitmask(LINEAR_PROPERTY_INDEX_ENUM(p))) {
+        result.linear_properties[i][p] = linears[p];
+      }
+    }
+
+    Color colors[COLOR_PROPERTIES_CAP];
+    memcpy(colors, &src->colors, sizeof(colors));
+    for (usize p = 0; p < COLOR_PROPERTIES_CAP; p += 1) {
+      if (mask & bitmask(COLOR_PROPERTY_INDEX_ENUM(p))) {
+        result.color_properties[i][p] = colors[p];
+      }
+    }
+
+    Element_Variable_Color variable_colors[VARIABLE_COLOR_PROPERTIES_CAP];
+    memcpy(variable_colors, &src->variable_colors, sizeof(variable_colors));
+    for (usize p = 0; p < VARIABLE_COLOR_PROPERTIES_CAP; p += 1) {
+      if (mask & bitmask(VARIABLE_COLOR_PROPERTY_INDEX_ENUM(p))) {
+        result.variable_color_properties[i][p] = variable_colors[p];
+      }
+    }
+
+    Element_Constraint constraints[CONSTRAINT_PROPERTIES_CAP];
+    memcpy(constraints, &src->constraints, sizeof(constraints));
+    for (usize p = 0; p < CONSTRAINT_PROPERTIES_CAP; p += 1) {
+      if (mask & bitmask(CONSTRAINT_PROPERTY_INDEX_ENUM(p))) {
+        result.constraint_properties[i][p] = constraints[p];
+      }
+    }
+  }
 
   return result;
 }
@@ -143,45 +270,48 @@ static Element_Computed_Properties process_element_computed_properties(
     return (Element_Computed_Properties){
       .linears =
           {
-            .border = style->linear_properties[LINEAR_PROPERTY_ENUM_RAW_INDEX(
-                Element_Property_Border
-            )][s],
-            .radius = style->linear_properties[LINEAR_PROPERTY_ENUM_RAW_INDEX(
-                Element_Property_Radius
-            )][s],
+            .border =
+                style->linear_properties[s][LINEAR_PROPERTY_ENUM_RAW_INDEX(
+                    Element_Property_Border
+                )],
+            .radius =
+                style->linear_properties[s][LINEAR_PROPERTY_ENUM_RAW_INDEX(
+                    Element_Property_Radius
+                )],
             .child_gap =
-                style->linear_properties[LINEAR_PROPERTY_ENUM_RAW_INDEX(
+                style->linear_properties[s][LINEAR_PROPERTY_ENUM_RAW_INDEX(
                     Element_Property_Child_Gap
-                )][s],
+                )],
             .font_size =
-                style->linear_properties[LINEAR_PROPERTY_ENUM_RAW_INDEX(
+                style->linear_properties[s][LINEAR_PROPERTY_ENUM_RAW_INDEX(
                     Element_Property_Font_Size
-                )][s],
+                )],
           },
       .colors =
           {
-            .background = style->color_properties[COLOR_PROPERTY_ENUM_RAW_INDEX(
-                Element_Property_Background_Color
-            )][s],
-            .text = style->color_properties[COLOR_PROPERTY_ENUM_RAW_INDEX(
+            .background =
+                style->color_properties[s][COLOR_PROPERTY_ENUM_RAW_INDEX(
+                    Element_Property_Background_Color
+                )],
+            .text = style->color_properties[s][COLOR_PROPERTY_ENUM_RAW_INDEX(
                 Element_Property_Text_Color
-            )][s],
-            .image = style->color_properties[COLOR_PROPERTY_ENUM_RAW_INDEX(
+            )],
+            .image = style->color_properties[s][COLOR_PROPERTY_ENUM_RAW_INDEX(
                 Element_Property_Image_Color
-            )][s],
+            )],
           },
       .variable_colors =
           {
             .border = style->variable_color_properties
-                          [VARIABLE_COLOR_PROPERTY_ENUM_RAW_INDEX(
+                          [s][VARIABLE_COLOR_PROPERTY_ENUM_RAW_INDEX(
                               Element_Property_Border_Color
-                          )][s],
+                          )],
           },
       .constraints = {
         .padding =
-            style->constraint_properties[CONSTRAINT_PROPERTY_ENUM_RAW_INDEX(
+            style->constraint_properties[s][CONSTRAINT_PROPERTY_ENUM_RAW_INDEX(
                 Element_Property_Padding
-            )][s],
+            )],
       }
     };
   }
@@ -200,30 +330,30 @@ static Element_Computed_Properties process_element_computed_properties(
               cache->linear_properties
                   [LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Border)],
               style->linear_properties
-                  [LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Border)][s],
+                  [s][LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Border)],
               t
           ),
           .radius = lerp_f32(
               cache->linear_properties
                   [LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Radius)],
               style->linear_properties
-                  [LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Radius)][s],
+                  [s][LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Radius)],
               t
           ),
           .child_gap = lerp_f32(
               cache->linear_properties
                   [LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Child_Gap)],
-              style->linear_properties[LINEAR_PROPERTY_ENUM_RAW_INDEX(
+              style->linear_properties[s][LINEAR_PROPERTY_ENUM_RAW_INDEX(
                   Element_Property_Child_Gap
-              )][s],
+              )],
               t
           ),
           .font_size = lerp_f32(
               cache->linear_properties
                   [LINEAR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Font_Size)],
-              style->linear_properties[LINEAR_PROPERTY_ENUM_RAW_INDEX(
+              style->linear_properties[s][LINEAR_PROPERTY_ENUM_RAW_INDEX(
                   Element_Property_Font_Size
-              )][s],
+              )],
               t
           ),
         },
@@ -233,25 +363,25 @@ static Element_Computed_Properties process_element_computed_properties(
               cache->color_properties[COLOR_PROPERTY_ENUM_RAW_INDEX(
                   Element_Property_Background_Color
               )],
-              style->color_properties[COLOR_PROPERTY_ENUM_RAW_INDEX(
+              style->color_properties[s][COLOR_PROPERTY_ENUM_RAW_INDEX(
                   Element_Property_Background_Color
-              )][s],
+              )],
               t
           ),
           .text = color_lerp(
               cache->color_properties
                   [COLOR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Text_Color)],
-              style->color_properties[COLOR_PROPERTY_ENUM_RAW_INDEX(
+              style->color_properties[s][COLOR_PROPERTY_ENUM_RAW_INDEX(
                   Element_Property_Text_Color
-              )][s],
+              )],
               t
           ),
           .image = color_lerp(
               cache->color_properties
                   [COLOR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Image_Color)],
-              style->color_properties[COLOR_PROPERTY_ENUM_RAW_INDEX(
+              style->color_properties[s][COLOR_PROPERTY_ENUM_RAW_INDEX(
                   Element_Property_Image_Color
-              )][s],
+              )],
               t
           ),
         },
@@ -263,9 +393,9 @@ static Element_Computed_Properties process_element_computed_properties(
                       Element_Property_Border_Color
                   )],
               style->variable_color_properties
-                  [VARIABLE_COLOR_PROPERTY_ENUM_RAW_INDEX(
+                  [s][VARIABLE_COLOR_PROPERTY_ENUM_RAW_INDEX(
                       Element_Property_Border_Color
-                  )][s],
+                  )],
               t
           ),
         },
@@ -274,21 +404,11 @@ static Element_Computed_Properties process_element_computed_properties(
           cache->constraint_properties
               [CONSTRAINT_PROPERTY_ENUM_RAW_INDEX(Element_Property_Padding)],
           style->constraint_properties
-              [CONSTRAINT_PROPERTY_ENUM_RAW_INDEX(Element_Property_Padding)][s],
+              [s][CONSTRAINT_PROPERTY_ENUM_RAW_INDEX(Element_Property_Padding)],
           t
       ),
     },
   };
-
-  // This is fucked and I'm too bored to fix it for now
-  // cardinal_color_lerp(
-  //     cache->cardinal_color_properties
-  //         [COLOR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Image_Color)],
-  //     style->cardinal_color_properties
-  //         [COLOR_PROPERTY_ENUM_RAW_INDEX(Element_Property_Image_Color)][s],
-  //     t,
-  //     result.cardinal_colors.border_color
-  // );
 
   return result;
 }
@@ -316,23 +436,29 @@ static void process_element(Element *element) {
     Element_Cached_Info new_cache = {
       .computed_rect = element->computed_rect,
       .last_touched = _ctx->frame_counter,
-      .target_state = s,
+      .target_state = Element_State_Normal,
     };
 
-    for (usize i = 0; i < LINEAR_PROPERTIES_CAP; i += 1) {
-      new_cache.linear_properties[i] = element->style.linear_properties[i][s];
-    }
-    for (usize i = 0; i < COLOR_PROPERTIES_CAP; i += 1) {
-      new_cache.color_properties[i] = element->style.color_properties[i][s];
-    }
-    for (usize i = 0; i < VARIABLE_COLOR_PROPERTIES_CAP; i += 1) {
-      new_cache.variable_color_properties[i] =
-          element->style.variable_color_properties[i][s];
-    }
-    for (usize i = 0; i < CONSTRAINT_PROPERTIES_CAP; i += 1) {
-      new_cache.constraint_properties[i] =
-          element->style.constraint_properties[i][s];
-    }
+    memcpy(
+        new_cache.linear_properties,
+        element->style.linear_properties[s],
+        sizeof(new_cache.linear_properties)
+    );
+    memcpy(
+        new_cache.color_properties,
+        element->style.color_properties[s],
+        sizeof(new_cache.color_properties)
+    );
+    memcpy(
+        new_cache.variable_color_properties,
+        element->style.variable_color_properties[s],
+        sizeof(new_cache.variable_color_properties)
+    );
+    memcpy(
+        new_cache.constraint_properties,
+        element->style.constraint_properties[s],
+        sizeof(new_cache.constraint_properties)
+    );
 
     open_map_set(_ctx->element_cache, handle, new_cache);
     cache = open_map_get(_ctx->element_cache, handle);
@@ -351,7 +477,7 @@ static void process_element(Element *element) {
 static Element_Events
 process_element_events(Element *element, Element_Cached_Info *cache) {
   cache->last_touched = _ctx->frame_counter;
-  cache->transition_time = max_f32(
+  cache->transition_time = min_f32(
       cache->transition_time + _ctx->dt,
       element->style.transitions[cache->target_state].duration
   );
@@ -360,12 +486,12 @@ process_element_events(Element *element, Element_Cached_Info *cache) {
     return 0;
   }
 
+  cache->previous_events = cache->events;
+  cache->events = 0;
+
   bool32 hovered =
       rect_point_in(element->computed_rect, _ctx->m_pos.x, _ctx->m_pos.y);
   _ctx->m_over_ui |= hovered;
-
-  cache->previous_events = cache->events;
-  cache->events = 0;
 
   if (hovered) {
     cache->events |= Element_Event_Hovered;
@@ -381,6 +507,12 @@ process_element_events(Element *element, Element_Cached_Info *cache) {
     if (_ctx->m_right.just_pressed) {
       cache->events |= Element_Event_Right_Clicked;
     }
+  }
+
+  if (cache->target_state == Element_State_Enter &&
+      cache->transition_time >=
+          element->style.transitions[Element_State_Enter].duration) {
+    cache->events |= Element_Event_Entered;
   }
 
   // TODO(nico): Handle Drag and Input

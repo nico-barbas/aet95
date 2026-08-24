@@ -1,8 +1,10 @@
 #include "ui.h"
 
 #include "core/imgui.h"
+#include "core/math.h"
 #include "core/platform.h"
 #include "core/strings.h"
+#include "core/types.h"
 #include "db.h"
 #include "game.h"
 #include "render.h"
@@ -35,85 +37,41 @@ void game_view(Game_State *model) {
     .layout = Element_Layout_Kind_Column,
     .sizing = {.width = element_sizing_fit(), .height = element_sizing_fit()},
     .style = {
-      .properties.constraints.padding =
+      .base =
           {
-            [Element_State_Enter] = element_constraint(8, 8, 8, 8),
-            [Element_State_Normal] = element_constraint(8, 8, 8, 8),
+            .constraints.padding = element_constraint(40, 40, 40, 40),
+            .colors.background = color(1, 0, 1, 1),
           },
-      .properties.colors.background = {
-        [Element_State_Enter] = color(1, 0, 1, 1),
-        [Element_State_Normal] = color(1, 0, 1, 1),
+      .variants =
+          {
+            [Element_Style_Variant_Enter] =
+                {
+                  .constraints.padding = element_constraint(0, 0, 0, 0),
+                },
+          },
+      .variant_masks =
+          {
+            [Element_Style_Variant_Enter] = bitmask(Element_Property_Padding),
+          },
+      .transition_set = bitmask(Element_State_Enter, Element_State_Normal),
+      .transitions = {
+        [Element_State_Normal] = {
+          .duration = 10.f,
+        },
       },
     }
   })) {
-    container((&(Element_Create_Info){
-      .layout = Element_Layout_Kind_Column,
-      .sizing =
-          {
-            .width = element_sizing_fit(),
-            .height = element_sizing_fit(),
-          },
-      .alignment =
-          {
-            .vertical = Element_Alignment_Center,
-            .horizontal = Element_Alignment_Center,
-          },
+    label((&(Element_Create_Info){
+      .text = from_c_str("hello world"),
       .style = {
-        .properties.colors.background =
+        .base =
             {
-              [Element_State_Enter] = color(1, 0, 0, 1),
-              [Element_State_Normal] = color(1, 0, 0, 1),
+              .linears.font_size = 18.f,
+              .colors.text = color(1, 1, 1, 1),
             },
-        .properties.constraints.padding = {
-          [Element_State_Enter] = element_constraint(8, 8, 8, 8),
-          [Element_State_Normal] = element_constraint(8, 8, 8, 8),
-        },
+        .font_data = font,
       },
-    })) {
-      button((&(Element_Create_Info){
-        .layout = Element_Layout_Kind_Column,
-        .sizing =
-            {
-              .width = element_sizing_fixed(200),
-              .height = element_sizing_fixed(200),
-            },
-        .alignment =
-            {
-              .vertical = Element_Alignment_Center,
-              .horizontal = Element_Alignment_Center,
-            },
-        .style = {
-          .properties.colors.background = {
-            [Element_State_Enter] = color(1, 0.25, 0, 1),
-            [Element_State_Normal] = color(1, 0.25, 0, 1),
-            [Element_State_Focus] = color(1, 0.25, 1, 1),
-          },
-        },
-      })) {
-        Element_Client_Info element = get_current_element();
-        if (element.events & Element_Event_Left_Clicked) {
-          printf("Clicked hello world\n");
-        }
-
-        label((&(Element_Create_Info){
-          .text = from_c_str("hello world"),
-          .style = {
-            .properties =
-                {
-                  .linears.font_size =
-                      {[Element_State_Enter] = 18.f,
-                       [Element_State_Normal] = 18.f},
-                  .colors.text =
-                      {
-                        [Element_State_Enter] = color(1, 1, 1, 1),
-                        [Element_State_Normal] = color(1, 1, 1, 1),
-                      },
-                },
-            .font_data = font,
-          },
-        }));
-      }
-    }
+    }));
   }
 }
 
