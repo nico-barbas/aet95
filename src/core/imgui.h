@@ -36,6 +36,7 @@ typedef enum Element_Flag {
   Element_Flag_Render_Background = 1 << 3,
   Element_Flag_Render_Text = 1 << 4,
   Element_Flag_Render_Image = 1 << 5,
+  Element_Flag_Render_Custom = 1 << 6,
 } Element_Flag;
 
 typedef u32 Element_Events;
@@ -253,6 +254,7 @@ typedef struct Element_Create_Info {
   Element_Position position;
   String text;
   Element_Image image;
+  void (*content_proc)(Rectangle rect, rawptr data);
 } Element_Create_Info;
 
 typedef struct Element Element;
@@ -286,6 +288,11 @@ struct Element {
   Rectangle computed_rect;
   String text;
   Element_Image image;
+
+  // This is the escape latch for using the layout engine but having access to
+  // custom rendering
+  rawptr content_data;
+  void (*content_proc)(Rectangle rect, rawptr data);
 };
 
 typedef struct Element_Cached_Info {
@@ -330,6 +337,7 @@ typedef struct Element_Render_Command {
     Element_Render_Command_Line,
     Element_Render_Command_Text,
     Element_Render_Command_Image,
+    Element_Render_Command_Custom,
   } kind;
   union {
     struct {
@@ -359,6 +367,11 @@ typedef struct Element_Render_Command {
       bool32 horizontal_flip;
       bool32 vertical_flip;
     } image;
+    struct {
+      Rectangle rect;
+      rawptr data;
+      void (*callback)(Rectangle rect, rawptr data);
+    } custom;
   };
 } Element_Render_Command;
 
@@ -432,9 +445,6 @@ void set_pointer_state(
 );
 void set_delta_time(Element_Context *ctx, f32 dt);
 
-// Vec2 get_mouse_delta();
-// Vec2 get_mouse_position();
-
 void begin_ui(Element_Context *ctx);
 Element_Render_Command_Buffer end_ui(Element_Context *ctx);
 
@@ -454,7 +464,7 @@ Element_Client_Info get_current_element();
 #define UI_CONCAT(a, b) UI_CONCAT_RAW(a, b)
 #define UI_ONCE UI_CONCAT(_once_, __LINE__)
 
-#define container(info)                                                        \
+#define element_container(info)                                                \
   for (u8 UI_ONCE =                                                            \
            (begin_element(                                                     \
                 info,                                                          \
@@ -465,7 +475,7 @@ Element_Client_Info get_current_element();
        !UI_ONCE;                                                               \
        UI_ONCE = (end_element(), 1))
 
-#define label(info)                                                            \
+#define element_label(info)                                                    \
   for (u8 UI_ONCE =                                                            \
            (begin_element(                                                     \
                 info,                                                          \
@@ -476,7 +486,7 @@ Element_Client_Info get_current_element();
        !UI_ONCE;                                                               \
        UI_ONCE = (end_element(), 1))
 
-#define button(info)                                                           \
+#define element_button(info)                                                   \
   for (u8 UI_ONCE =                                                            \
            (begin_element(                                                     \
                 info,                                                          \
@@ -487,7 +497,7 @@ Element_Client_Info get_current_element();
        !UI_ONCE;                                                               \
        UI_ONCE = (end_element(), 1))
 
-#define image(info)                                                            \
+#define element_image(info)                                                    \
   for (u8 UI_ONCE =                                                            \
            (begin_element(                                                     \
                 info,                                                          \
@@ -498,21 +508,16 @@ Element_Client_Info get_current_element();
        !UI_ONCE;                                                               \
        UI_ONCE = (end_element(), 1))
 
-#define image_interactive(info)                                                \
+#define element_custom(info)                                                   \
   for (u8 UI_ONCE =                                                            \
            (begin_element(                                                     \
                 info,                                                          \
                 ((info)->override_flags | Element_Flag_Visible |               \
-                 Element_Flag_Interactive | Element_Flag_Render_Image)         \
+                 Element_Flag_Render_Custom)                                   \
             ),                                                                 \
             0);                                                                \
        !UI_ONCE;                                                               \
        UI_ONCE = (end_element(), 1))
-
-// #define CLR_TRANSPARENT ((Element_Color){0, 0, 0, 0})
-// #define CLR_WHITE ((Element_Color){1, 1, 1, 1})
-// #define CLR_BLACK ((Element_Color){0, 0, 0, 1})
-// #define CLR_RED ((Element_Color){1, 0, 0, 1})
 
 static inline Element_Sizing element_sizing_fixed(f32 value) {
   return (Element_Sizing){.kind = Element_Sizing_Fixed, .value = value};
@@ -530,6 +535,87 @@ static inline Element_Constraint
 element_constraint(f32 l, f32 r, f32 t, f32 b) {
   return (Element_Constraint){.left = l, .right = r, .top = t, .bottom = b};
 }
+
+//////////////////////
+// Predefined colors
+//////////////////////
+
+#define BASIC_CLR_TRANSPARENT ((Color){.raw = {0, 0, 0, 0}})
+#define BASIC_CLR_WHITE ((Color){.raw = {1, 1, 1, 1}})
+#define BASIC_CLR_BLACK ((Color){.raw = {0, 0, 0, 1}})
+#define BASIC_CLR_RED ((Color){.raw = {1, 0, 0, 1}})
+
+// Gruvbox
+// NOTE(nico): stored linear, the surface is *UnormSrgb so the hardware
+// re-encodes on write. Trailing comment is the source sRGB hex.
+#define GRUVBOX_CLR_BG0_HARD                                                   \
+  ((Color){.raw = {0.012286f, 0.014444f, 0.015209f, 1}}) // #1d2021
+#define GRUVBOX_CLR_BG0                                                        \
+  ((Color){.raw = {0.021219f, 0.021219f, 0.021219f, 1}}) // #282828
+#define GRUVBOX_CLR_BG0_SOFT                                                   \
+  ((Color){.raw = {0.031896f, 0.029557f, 0.028426f, 1}}) // #32302f
+#define GRUVBOX_CLR_BG1                                                        \
+  ((Color){.raw = {0.045186f, 0.039546f, 0.036889f, 1}}) // #3c3836
+#define GRUVBOX_CLR_BG2                                                        \
+  ((Color){.raw = {0.080220f, 0.066626f, 0.059511f, 1}}) // #504945
+#define GRUVBOX_CLR_BG3                                                        \
+  ((Color){.raw = {0.132868f, 0.107023f, 0.088656f, 1}}) // #665c54
+#define GRUVBOX_CLR_BG4                                                        \
+  ((Color){.raw = {0.201556f, 0.158961f, 0.127438f, 1}}) // #7c6f64
+#define GRUVBOX_CLR_FG0                                                        \
+  ((Color){.raw = {0.964686f, 0.879622f, 0.571125f, 1}}) // #fbf1c7
+#define GRUVBOX_CLR_FG1                                                        \
+  ((Color){.raw = {0.830770f, 0.708376f, 0.445201f, 1}}) // #ebdbb2
+#define GRUVBOX_CLR_FG2                                                        \
+  ((Color){.raw = {0.665387f, 0.552011f, 0.356400f, 1}}) // #d5c4a1
+#define GRUVBOX_CLR_FG3                                                        \
+  ((Color){.raw = {0.508881f, 0.423268f, 0.291771f, 1}}) // #bdae93
+#define GRUVBOX_CLR_FG4                                                        \
+  ((Color){.raw = {0.391572f, 0.318547f, 0.230740f, 1}}) // #a89984
+#define GRUVBOX_CLR_GRAY                                                       \
+  ((Color){.raw = {0.287441f, 0.226966f, 0.174647f, 1}}) // #928374
+#define GRUVBOX_CLR_RED                                                        \
+  ((Color){.raw = {0.603827f, 0.017642f, 0.012286f, 1}}) // #cc241d
+#define GRUVBOX_CLR_GREEN                                                      \
+  ((Color){.raw = {0.313989f, 0.309469f, 0.010330f, 1}}) // #98971a
+#define GRUVBOX_CLR_YELLOW                                                     \
+  ((Color){.raw = {0.679542f, 0.318547f, 0.015209f, 1}}) // #d79921
+#define GRUVBOX_CLR_BLUE                                                       \
+  ((Color){.raw = {0.059511f, 0.234551f, 0.246201f, 1}}) // #458588
+#define GRUVBOX_CLR_PURPLE                                                     \
+  ((Color){.raw = {0.439657f, 0.122139f, 0.238398f, 1}}) // #b16286
+#define GRUVBOX_CLR_AQUA                                                       \
+  ((Color){.raw = {0.138432f, 0.337164f, 0.144128f, 1}}) // #689d6a
+#define GRUVBOX_CLR_ORANGE                                                     \
+  ((Color){.raw = {0.672443f, 0.109462f, 0.004391f, 1}}) // #d65d0e
+#define GRUVBOX_CLR_BRIGHT_RED                                                 \
+  ((Color){.raw = {0.964686f, 0.066626f, 0.034340f, 1}}) // #fb4934
+#define GRUVBOX_CLR_BRIGHT_GREEN                                               \
+  ((Color){.raw = {0.479320f, 0.496933f, 0.019382f, 1}}) // #b8bb26
+#define GRUVBOX_CLR_BRIGHT_YELLOW                                              \
+  ((Color){.raw = {0.955973f, 0.508881f, 0.028426f, 1}}) // #fabd2f
+#define GRUVBOX_CLR_BRIGHT_BLUE                                                \
+  ((Color){.raw = {0.226966f, 0.376262f, 0.313989f, 1}}) // #83a598
+#define GRUVBOX_CLR_BRIGHT_PURPLE                                              \
+  ((Color){.raw = {0.651406f, 0.238398f, 0.327778f, 1}}) // #d3869b
+#define GRUVBOX_CLR_BRIGHT_AQUA                                                \
+  ((Color){.raw = {0.270498f, 0.527115f, 0.201556f, 1}}) // #8ec07c
+#define GRUVBOX_CLR_BRIGHT_ORANGE                                              \
+  ((Color){.raw = {0.991102f, 0.215861f, 0.009721f, 1}}) // #fe8019
+#define GRUVBOX_CLR_FADED_RED                                                  \
+  ((Color){.raw = {0.337164f, 0.000000f, 0.001821f, 1}}) // #9d0006
+#define GRUVBOX_CLR_FADED_GREEN                                                \
+  ((Color){.raw = {0.191202f, 0.174647f, 0.004391f, 1}}) // #79740e
+#define GRUVBOX_CLR_FADED_YELLOW                                               \
+  ((Color){.raw = {0.462077f, 0.181164f, 0.006995f, 1}}) // #b57614
+#define GRUVBOX_CLR_FADED_BLUE                                                 \
+  ((Color){.raw = {0.002125f, 0.132868f, 0.187821f, 1}}) // #076678
+#define GRUVBOX_CLR_FADED_PURPLE                                               \
+  ((Color){.raw = {0.274677f, 0.049707f, 0.165132f, 1}}) // #8f3f71
+#define GRUVBOX_CLR_FADED_AQUA                                                 \
+  ((Color){.raw = {0.054480f, 0.198069f, 0.097587f, 1}}) // #427b58
+#define GRUVBOX_CLR_FADED_ORANGE                                               \
+  ((Color){.raw = {0.428690f, 0.042311f, 0.000911f, 1}}) // #af3a03
 
 ////////////////////
 // Static asserts

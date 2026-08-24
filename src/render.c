@@ -871,6 +871,37 @@ void end_render_2d(Renderer2D *renderer) {
   renderer->cpu_vertex_count = 0;
 }
 
+void draw_char(Renderer2D *renderer, char c, Vec2 origin, Color color) {
+  Font_Atlas *font = &renderer->font;
+
+  Font_Glyph_Option glyph_opt = font_atlas_get_glyph(font, (utf8_char)c);
+  if (!glyph_opt.some) {
+    return;
+  }
+
+  Font_Glyph glyph = glyph_opt.value;
+  if (glyph.dimensions.x > 0 && glyph.dimensions.y > 0) {
+    draw_quad(
+        renderer,
+        (Rectangle){
+          .x = origin.x + glyph.offset.x,
+          .y = origin.y + glyph.offset.y,
+          .width = glyph.dimensions.x,
+          .height = glyph.dimensions.y
+        },
+        Renderer2D_Atlas_Font,
+        (Rectangle){
+          .x = glyph.bound_min.x,
+          .y = glyph.bound_min.y,
+          .width = glyph.bound_max.x - glyph.bound_min.x,
+          .height = glyph.bound_max.y - glyph.bound_min.y,
+        },
+        0.f,
+        color
+    );
+  }
+}
+
 // FIXME(nico): No support for utf8
 void draw_text(Renderer2D *renderer, String text, Vec2 origin, Color color) {
   Font_Atlas *font = &renderer->font;

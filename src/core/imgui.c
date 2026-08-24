@@ -588,6 +588,18 @@ process_element_commands(Element *element, Element_Cached_Info *cached_info) {
         }
     );
   }
+
+  if (element->flags & Element_Flag_Render_Custom) {
+    element_render_list_push(
+        &_ctx->commands,
+        &(Element_Render_Command){
+          .custom = {
+            .rect = element->computed_rect,
+            .callback = element->content_proc,
+          },
+        }
+    );
+  }
 }
 
 ///////////////////////

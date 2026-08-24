@@ -51,6 +51,7 @@ typedef struct Font_Atlas {
   f32 descent;
   f32 line_gap;
   f32 line_height;
+  f32 max_advance;
 } Font_Atlas;
 
 typedef Result(Font_Atlas, Font_Error) Font_Atlas_Create_Result;

@@ -84,6 +84,17 @@ typedef struct Vec2 {
   };
 } Vec2;
 
+typedef struct Vec3 {
+  union {
+    f32 raw[3];
+    struct {
+      f32 x;
+      f32 y;
+      f32 z;
+    };
+  };
+} Vec3;
+
 typedef struct Vec4 {
   union {
     f32 raw[4];
@@ -96,16 +107,15 @@ typedef struct Vec4 {
   };
 } Vec4;
 
-typedef struct Vec3 {
+typedef struct Vec2Int {
   union {
-    f32 raw[3];
+    i32 raw[2];
     struct {
-      f32 x;
-      f32 y;
-      f32 z;
+      i32 x;
+      i32 y;
     };
   };
-} Vec3;
+} Vec2Int;
 
 typedef struct Vec3Int {
   union {
@@ -174,6 +184,9 @@ Vec2 vec2(f32 x, f32 y);
 Vec2 vec2_add(Vec2 v1, Vec2 v2);
 Vec2 vec2_normalize(Vec2 v);
 Vec2 vec2_rotate_around(Vec2 v, Vec2 center, f32 angle);
+
+Vec2Int vec2int(i32 x, i32 y);
+bool32 vec2int_eq(Vec2Int a, Vec2Int b);
 
 #define VEC3_UP ((Vec3){.raw = {0.f, 1.f, 0.f}})
 #define VEC3_DOWN ((Vec3){.raw = {0.f, -1.f, 0.f}})

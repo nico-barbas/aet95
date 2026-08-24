@@ -179,6 +179,14 @@ Vec2 vec2_rotate_around(Vec2 v, Vec2 center, f32 angle) {
   };
 }
 
+Vec2Int vec2int(i32 x, i32 y) {
+  return (Vec2Int){.raw = {x, y}};
+}
+
+bool32 vec2int_eq(Vec2Int a, Vec2Int b) {
+  return a.x == b.x && a.y == b.y;
+}
+
 Vec3 vec3(f32 x, f32 y, f32 z) {
   return (Vec3){.raw = {x, y, z}};
 }

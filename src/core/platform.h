@@ -9,6 +9,7 @@
 
 #define APP_KEYBOARD_KEY_CAP 512
 #define APP_MOUSE_BUTTON_CAP 12
+#define APP_CHAR_BUFFER_CAP 512
 
 /////////////////////////////
 // Forward declarations
@@ -81,6 +82,8 @@ typedef struct App {
   Vec2 mouse_position;
   Vec2 previous_mouse_position;
   f32 mouse_scoll;
+  utf8_char char_buffer[APP_CHAR_BUFFER_CAP];
+  usize char_buffer_len;
   struct {
     bool8 previous;
     bool8 current;
@@ -226,6 +229,8 @@ typedef enum Keyboard_Key {
   Keyboard_Key_Volume_Down = 25 // Key: Android volume down button
 } Keyboard_Key;
 
+typedef Array(utf8_char) Text_Array;
+
 bool32 init_app(App_Create_Info *info, Allocator allocator);
 void close_app(App *app);
 
@@ -236,6 +241,7 @@ void app_end_frame(App *app);
 u64 app_get_current_time_ns();
 u64 app_get_last_time_ns();
 f32 app_get_elapsed_time();
+Vec2 app_get_window_size();
 
 Vec2 app_mouse_position();
 Vec2 app_mouse_delta();
@@ -246,6 +252,7 @@ bool8 app_mouse_pressed(Mouse_Button button);
 bool8 app_mouse_just_pressed(Mouse_Button button);
 bool8 app_key_pressed(Keyboard_Key key);
 bool8 app_key_just_pressed(Keyboard_Key key);
+Text_Array app_chars_pressed();
 
 /////////////////////////////
 // GPU Buffer management

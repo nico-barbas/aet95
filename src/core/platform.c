@@ -1,6 +1,8 @@
 #include "core/platform.h"
 
+#include "core/log.h"
 #include "core/math.h"
+#include "core/types.h"
 #include "stb_image.h"
 
 #include <assert.h>
@@ -107,6 +109,9 @@ static void input_key_callback(
 static void
 input_mouse_scroll_callback(GLFWwindow *window, f64 xoffset, f64 yoffset);
 
+static void
+input_char_pressed_callback(GLFWwindow *window, utf8_char codepoint);
+
 bool32 init_app(App_Create_Info *info, Allocator allocator) {
   _Static_assert(
       sizeof(GPU_Vertex_Attribute) == sizeof(WGPUVertexAttribute),
@@ -210,6 +215,7 @@ bool32 init_app(App_Create_Info *info, Allocator allocator) {
   glfwSetMouseButtonCallback(app->window_handle, input_mouse_button_callback);
   glfwSetKeyCallback(app->window_handle, input_key_callback);
   glfwSetScrollCallback(app->window_handle, input_mouse_scroll_callback);
+  glfwSetCharCallback(app->window_handle, input_char_pressed_callback);
 
 #if defined(PLATFORM_WEB)
   app->gpu_instance = wgpuCreateInstance(nullptr);
@@ -439,6 +445,7 @@ bool32 app_update(App *app) {
   app->previous_mouse_position = app->mouse_position;
   app->mouse_position = (Vec2){.x = (f32)mx, .y = (f32)my};
   app->mouse_scoll = 0.f;
+  app->char_buffer_len = 0;
 
   for (usize i = 0; i < APP_MOUSE_BUTTON_CAP; i += 1) {
     app->mouse[i].previous = app->mouse[i].current;
@@ -540,6 +547,13 @@ bool8 app_key_just_pressed(Keyboard_Key key) {
   return _app->keys[key].current && !_app->keys[key].previous;
 }
 
+Text_Array app_chars_pressed() {
+  return (Text_Array){
+    .items = _app->char_buffer,
+    .len = _app->char_buffer_len,
+  };
+}
+
 /////////////////////////////////////
 // All the various callbacks
 /////////////////////////////////////
@@ -620,6 +634,17 @@ input_mouse_scroll_callback(GLFWwindow *window, f64 xoffset, f64 yoffset) {
   (void)window;
   (void)xoffset;
   _app->mouse_scoll = (f32)yoffset;
+}
+
+static void
+input_char_pressed_callback(GLFWwindow *window, utf8_char codepoint) {
+  (void)window;
+  if (_app->char_buffer_len >= APP_CHAR_BUFFER_CAP) {
+    log_debug(&_app->logger, "Char buffer capacity reached");
+    return;
+  }
+
+  _app->char_buffer[_app->char_buffer_len++] = codepoint;
 }
 
 /////////////////////////////

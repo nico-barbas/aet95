@@ -140,6 +140,7 @@ make_font_atlas_from_file(String path, f32 size, Allocator allocator) {
     return err(Font_Atlas_Create_Result, Font_Error_Failed_To_Load_Font);
   }
 
+  font.max_advance = -1000.f;
   for (usize i = 0; i < ASCII_CODEPOINT_COUNT; i += 1) {
     stbtt_packedchar *pc = &packed_chars[i];
 
@@ -154,6 +155,7 @@ make_font_atlas_from_file(String path, f32 size, Allocator allocator) {
           .advance = pc->xadvance,
         })
     );
+    font.max_advance = max_f32(font.max_advance, pc->xadvance);
   }
 
   return ok(Font_Atlas_Create_Result, font);

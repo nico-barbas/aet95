@@ -139,6 +139,8 @@ void init_game(void) {
 
   aet_cpu_load_program(&machine.cpu, program);
   aet_machine_run(&machine, 5000);
+
+  tmp_init_game_view(&_game.renderer_2d, _game.global_allocator);
 }
 
 void close_game(void) {
