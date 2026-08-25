@@ -255,6 +255,7 @@ typedef struct Element_Create_Info {
   String text;
   Element_Image image;
   void (*content_proc)(Rectangle rect, rawptr data);
+  rawptr content_data;
 } Element_Create_Info;
 
 typedef struct Element Element;

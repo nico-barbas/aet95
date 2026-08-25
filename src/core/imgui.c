@@ -593,9 +593,11 @@ process_element_commands(Element *element, Element_Cached_Info *cached_info) {
     element_render_list_push(
         &_ctx->commands,
         &(Element_Render_Command){
+          .kind = Element_Render_Command_Custom,
           .custom = {
             .rect = element->computed_rect,
             .callback = element->content_proc,
+            .data = element->content_data,
           },
         }
     );
@@ -1180,6 +1182,7 @@ void begin_element_impl(
       &_ctx->elements,
       &(Element){
         .id = info->id.some ? info->id.value : callsite,
+        .flags = flags,
         .layout = info->layout,
         .sizing = {.width = info->sizing.width, .height = info->sizing.height},
         .alignment =
@@ -1187,11 +1190,12 @@ void begin_element_impl(
               .horizontal = info->alignment.horizontal,
               .vertical = info->alignment.vertical,
             },
+        .style = element_style_to_internal(&info->style),
         .position = info->position,
         .text = info->text,
         .image = info->image,
-        .style = element_style_to_internal(&info->style),
-        .flags = flags,
+        .content_proc = info->content_proc,
+        .content_data = info->content_data,
       }
   ));
   Element *element = &_ctx->elements.items[element_index];

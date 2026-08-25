@@ -62,11 +62,26 @@ static void text_screen_move_cursor_down(Text_Screen *screen) {
   screen->cursor.y += 1;
 }
 
+static void text_screen_move_cursor_up(Text_Screen *screen) {
+  screen->cursor =
+      vec2int((i32)screen->width - 1, max_i32(screen->cursor.y - 1, 0));
+}
+
 static void text_screen_move_cursor_forward(Text_Screen *screen) {
   screen->cursor.x += 1;
   if (screen->cursor.x >= (i32)screen->width) {
     text_screen_move_cursor_down(screen);
   }
+}
+
+static void text_screen_move_cursor_backward(Text_Screen *screen) {
+  if (screen->cursor.x == 0) {
+    if (screen->cursor.y > 0) {
+      text_screen_move_cursor_up(screen);
+    }
+    return;
+  }
+  screen->cursor.x -= 1;
 }
 
 void text_screen_write_ascii_char(Text_Screen *screen, char c, Theme_Color fg) {
@@ -79,6 +94,7 @@ void text_screen_write_ascii_char(Text_Screen *screen, char c, Theme_Color fg) {
       screen->cells,
       index,
       ((Text_Cell){
+        .present = true,
         .content = (utf8_char)c,
         .fg = fg,
       })
@@ -100,7 +116,7 @@ void text_screen_delete_at_cursor(Text_Screen *screen, usize len) {
 
   memset(screen->cells.items + start, 0, (end - start) * sizeof(Text_Cell));
   for (usize i = 0; i < len; i += 1) {
-    // text_screen_move_cursor_backward
+    text_screen_move_cursor_backward(screen);
   }
 }
 
@@ -119,7 +135,7 @@ void text_screen_render(
       usize index = text_screen_coord_to_index(screen, coord);
 
       f32 physical_x = (f32)x * screen->cell_width + off_x + origin.x;
-      f32 physical_y = (f32)y * screen->cell_width + off_y + origin.y;
+      f32 physical_y = (f32)y * screen->cell_height + off_y + origin.y;
       if (vec2int_eq(screen->cursor, coord)) {
         draw_text(
             renderer,
@@ -173,6 +189,10 @@ static void text_editor_view(Text_Editor *ed) {
     );
   }
 
+  if (app_key_pressed(Keyboard_Key_Backspace)) {
+    text_screen_delete_at_cursor(&ed->screen, 1);
+  }
+
   element_container((&(Element_Create_Info){
     .layout = Element_Layout_Kind_Column,
     .sizing = {.width = element_sizing_fit(), .height = element_sizing_fit()},
@@ -186,6 +206,7 @@ static void text_editor_view(Text_Editor *ed) {
           {.width = element_sizing_fixed(400),
            .height = element_sizing_fixed(600)},
       .content_proc = text_editor_cells_view,
+      .content_data = ed,
     }));
   }
 }
@@ -293,7 +314,7 @@ void render_game_view(
     } break;
     case Element_Render_Command_Custom: {
       cmd.custom.callback(cmd.custom.rect, cmd.custom.data);
-    }
+    } break;
     }
   }
 }

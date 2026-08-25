@@ -873,6 +873,8 @@ void end_render_2d(Renderer2D *renderer) {
 
 void draw_char(Renderer2D *renderer, char c, Vec2 origin, Color color) {
   Font_Atlas *font = &renderer->font;
+  f32 x = origin.x;
+  f32 y = origin.y + font->ascent;
 
   Font_Glyph_Option glyph_opt = font_atlas_get_glyph(font, (utf8_char)c);
   if (!glyph_opt.some) {
@@ -884,8 +886,8 @@ void draw_char(Renderer2D *renderer, char c, Vec2 origin, Color color) {
     draw_quad(
         renderer,
         (Rectangle){
-          .x = origin.x + glyph.offset.x,
-          .y = origin.y + glyph.offset.y,
+          .x = x + glyph.offset.x,
+          .y = y + glyph.offset.y,
           .width = glyph.dimensions.x,
           .height = glyph.dimensions.y
         },
