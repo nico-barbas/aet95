@@ -95,7 +95,11 @@ bool32 string_equal(String s1, String s2) {
     return false;
   }
 
-  return memcmp(s1.data, s2.data, s1.len * sizeof(char)) == 0;
+  if (s1.data == s2.data) {
+    return true;
+  }
+
+  return memcmp(s1.data, s2.data, s1.len) == 0;
 }
 
 bool32 string_to_u16(String str, u16 *out) {

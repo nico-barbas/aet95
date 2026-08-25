@@ -2,10 +2,13 @@
 
 #include "core/allocator.h"
 #include "core/math.h"
+#include "core/strings.h"
 #include "core/types.h"
 #include "string.h"
 
 #include <assert.h>
+
+#define DEFAULT_OPEN_MAP_CAP 32
 
 static usize align_up(usize n, usize align) {
   return (n + align - 1) & ~(align - 1);
@@ -97,7 +100,7 @@ Open_Map open_map_ensure_cap(Open_Map map, usize item_count) {
       header->key_align,
       header->value_size,
       header->value_align,
-      header->cap * 2,
+      header->cap == 0 ? DEFAULT_OPEN_MAP_CAP : header->cap * 2,
       header->hash,
       header->key_eq,
       header->allocator
@@ -126,6 +129,9 @@ Open_Map open_map_ensure_cap(Open_Map map, usize item_count) {
 // for given key
 bool32 open_map_insert_kv(Open_Map map, void *key, void *value) {
   Open_Map_Header *header = open_map_header(map);
+  if (header->cap == 0) {
+    return false;
+  }
 
   u64 hash = header->hash(key, header->key_size);
   usize index = (usize)(hash % header->cap);
@@ -156,6 +162,9 @@ bool32 open_map_insert_kv(Open_Map map, void *key, void *value) {
 
 void *internal_open_map_get(Open_Map map, void *key) {
   Open_Map_Header *header = open_map_header(map);
+  if (header->cap == 0) {
+    return nullptr;
+  }
 
   u64 hash = header->hash(key, header->key_size);
   usize index = (usize)(hash % header->cap);
@@ -253,7 +262,7 @@ bool32 open_map_remove_raw(Open_Map map, void *key) {
 //////////////////////////////
 // Provided defaults
 //////////////////////////////
-u64 open_map_u32_hash(void *key, usize key_size) {
+u64 open_map_u32_hash(const void *key, usize key_size) {
   (void)key_size;
   return hash_fnv1a(key, sizeof(u32));
 }
@@ -262,4 +271,17 @@ bool32 open_map_u32_eq(void *k1, void *k2) {
   u32 *a = (u32 *)k1;
   u32 *b = (u32 *)k2;
   return (*a) == (*b);
+}
+
+u64 open_map_string_hash(const void *key, usize key_size) {
+  (void)key_size;
+  const String *str = (const String *)key;
+  return hash_fnv1a(str->data, str->len);
+}
+
+bool32 open_map_string_eq(void *k1, void *k2) {
+  String *s1 = (String *)k1;
+  String *s2 = (String *)k2;
+
+  return string_equal(*s1, *s2);
 }
