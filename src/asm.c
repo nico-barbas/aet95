@@ -40,7 +40,7 @@ typedef enum Aet_Assembly_Token_Kind {
   Aet_Assembly_Token_Kind_register_end_,
 
   Aet_Assembly_Token_Kind_instruction_start_,
-#define X(name, text, opcode, form, ext, instr_count)                          \
+#define X(name, text, opcode, form, ext, instr_count, label_allowed)           \
   Aet_Assembly_Token_Kind_##name,
   AET_INSTRUCTIONS(X)
 #undef X
@@ -59,11 +59,12 @@ typedef struct Aet_Assembly_Instruction_Info {
   Aet_Instruction_Form form;
   Aet_Bit_Extension extension;
   usize instruction_count;
+  bool32 label_allowed;
 } Aet_Assembly_Instruction_Info;
 
 static const Aet_Assembly_Instruction_Info
     aet_instruction_lookup[Aet_CPU_Opcode_MAX] = {
-#define X(name, text, opcode, form, ext, instr_count)                          \
+#define X(name, text, opcode, form, ext, instr_count, label_allowed)           \
   [opcode] = {                                                                 \
     text,                                                                      \
     sizeof(text) - 1,                                                          \
@@ -72,6 +73,7 @@ static const Aet_Assembly_Instruction_Info
     Aet_Instruction_Form_##form,                                               \
     Aet_Bit_Extension_##ext,                                                   \
     instr_count,                                                               \
+    label_allowed,                                                             \
   },
       AET_INSTRUCTIONS(X)
 #undef X
@@ -98,12 +100,15 @@ typedef struct Aet_Assembly_Parser {
   String_Reader reader;
   Aet_Assembly_Token previous;
   Aet_Assembly_Token current;
+  Open_Map symbol_table;
+  usize pc;
 } Aet_Assembly_Parser;
 
 typedef Result(
     Aet_Assembly_Token, Aet_Assembler_Error
 ) Aet_Assembly_Token_Result;
 typedef Option(Aet_Assembly_Token_Kind) Aet_Assembly_Token_Option;
+typedef Result(u32, Aet_Assembler_Error) Aet_Assembly_Immediate_Result;
 
 typedef Option(
     Aet_Assembly_Instruction_Info
@@ -397,6 +402,56 @@ aet_immediate_range(Aet_Bit_Extension extension, u32 bits) {
   return (Aet_Immediate_Range){.min = 0, .max = 0};
 }
 
+static Aet_Assembly_Immediate_Result aet_parse_immediate(
+    Aet_Assembly_Parser *parser, Aet_Assembly_Instruction_Info *info, u32 length
+) {
+  if (length != 16 && length != 24) {
+    return err(
+        Aet_Assembly_Immediate_Result, Aet_Assembler_Error_Internal_Failure
+    );
+  }
+
+  Aet_Assembly_Token token =
+      try(Aet_Assembly_Immediate_Result, aet_assembler_consume_token(parser));
+
+  i64 value = 0;
+  if (token.kind == Aet_Assembly_Token_Kind_Number_Literal) {
+    if (!string_to_i64(token.lexeme, &value)) {
+      return err(
+          Aet_Assembly_Immediate_Result,
+          Aet_Assembler_Error_Invalid_Immediate_Value
+      );
+    }
+  } else if (
+      token.kind == Aet_Assembly_Token_Kind_Identifier && info->label_allowed
+  ) {
+    usize *label_addr_ptr =
+        (usize *)open_map_get(parser->symbol_table, token.lexeme);
+    if (label_addr_ptr == nullptr) {
+      return err(
+          Aet_Assembly_Immediate_Result, Aet_Assembler_Error_Unknown_Symbol
+      );
+    }
+
+    value = (i64)*label_addr_ptr - (i64)parser->pc;
+  } else {
+    return err(
+        Aet_Assembly_Immediate_Result, Aet_Assembler_Error_Invalid_Syntax
+    );
+  }
+
+  Aet_Immediate_Range range = aet_immediate_range(info->extension, length);
+
+  if (value < range.min || value > range.max) {
+    return err(
+        Aet_Assembly_Immediate_Result,
+        Aet_Assembler_Error_Invalid_Immediate_Value
+    );
+  }
+
+  return ok(Aet_Assembly_Immediate_Result, (u32)value);
+}
+
 static Aet_Assembly_Instruction_Result
 aet_assemble_rrr_op(Aet_Assembly_Parser *parser, Aet_CPU_Opcode op) {
   Aet_Assembly_Token arg1 =
@@ -463,36 +518,14 @@ aet_assemble_rri_op(Aet_Assembly_Parser *parser, Aet_CPU_Opcode op) {
   try(Aet_Assembly_Instruction_Result,
       aet_assembler_expect_token(parser, Aet_Assembly_Token_Kind_Comma));
 
-  Aet_Assembly_Token arg3 =
-      try(Aet_Assembly_Instruction_Result, aet_assembler_consume_token(parser));
-  if (arg3.kind != Aet_Assembly_Token_Kind_Number_Literal) {
-    return err(
-        Aet_Assembly_Instruction_Result, Aet_Assembler_Error_Invalid_Syntax
-    );
-  }
-
   Aet_Register rd = aet_assembly_token_to_register(arg1);
   Aet_Register rs1 = aet_assembly_token_to_register(arg2);
 
-  i64 immediate = 0;
-  if (!string_to_i64(arg3.lexeme, &immediate)) {
-    return err(
-        Aet_Assembly_Instruction_Result,
-        Aet_Assembler_Error_Invalid_Immediate_Value
-    );
-  }
+  u32 immediate =
+      try(Aet_Assembly_Instruction_Result,
+          aet_parse_immediate(parser, &info, 16));
 
-  Aet_Immediate_Range range = aet_immediate_range(info.extension, 16);
-
-  if (immediate < range.min || immediate > range.max) {
-    return err(
-        Aet_Assembly_Instruction_Result,
-        Aet_Assembler_Error_Invalid_Immediate_Value
-    );
-  }
-
-  u32 instr =
-      (u32)(op) | ((u32)rd << 8) | ((u32)rs1 << 12) | ((u32)immediate << 16);
+  u32 instr = (u32)(op) | ((u32)rd << 8) | ((u32)rs1 << 12) | (immediate << 16);
   return ok(Aet_Assembly_Instruction_Result, instr);
 }
 
@@ -511,34 +544,13 @@ aet_assemble_ri_op(Aet_Assembly_Parser *parser, Aet_CPU_Opcode op) {
   try(Aet_Assembly_Instruction_Result,
       aet_assembler_expect_token(parser, Aet_Assembly_Token_Kind_Comma));
 
-  Aet_Assembly_Token arg2 =
-      try(Aet_Assembly_Instruction_Result, aet_assembler_consume_token(parser));
-  if (arg2.kind != Aet_Assembly_Token_Kind_Number_Literal) {
-    return err(
-        Aet_Assembly_Instruction_Result, Aet_Assembler_Error_Invalid_Syntax
-    );
-  }
-
   Aet_Register rd = aet_assembly_token_to_register(arg1);
 
-  i64 immediate = 0;
-  if (!string_to_i64(arg2.lexeme, &immediate)) {
-    return err(
-        Aet_Assembly_Instruction_Result,
-        Aet_Assembler_Error_Invalid_Immediate_Value
-    );
-  }
+  u32 immediate =
+      try(Aet_Assembly_Instruction_Result,
+          aet_parse_immediate(parser, &info, 16));
 
-  Aet_Immediate_Range range = aet_immediate_range(info.extension, 16);
-
-  if (immediate < range.min || immediate > range.max) {
-    return err(
-        Aet_Assembly_Instruction_Result,
-        Aet_Assembler_Error_Invalid_Immediate_Value
-    );
-  }
-
-  u32 instr = (u32)(op) | ((u32)rd << 8) | ((u32)immediate << 16);
+  u32 instr = (u32)(op) | ((u32)rd << 8) | (immediate << 16);
   return ok(Aet_Assembly_Instruction_Result, instr);
 }
 
@@ -546,42 +558,14 @@ static Aet_Assembly_Instruction_Result
 aet_assemble_i_op(Aet_Assembly_Parser *parser, Aet_CPU_Opcode op) {
   Aet_Assembly_Instruction_Info info = aet_instruction_lookup[op];
 
-  Aet_Assembly_Token arg =
-      try(Aet_Assembly_Instruction_Result, aet_assembler_consume_token(parser));
+  u32 immediate =
+      try(Aet_Assembly_Instruction_Result,
+          aet_parse_immediate(parser, &info, 24));
 
-  if (arg.kind != Aet_Assembly_Token_Kind_Number_Literal) {
-    return err(
-        Aet_Assembly_Instruction_Result, Aet_Assembler_Error_Invalid_Syntax
-    );
-  }
-
-  i64 immediate = 0;
-  if (!string_to_i64(arg.lexeme, &immediate)) {
-    return err(
-        Aet_Assembly_Instruction_Result,
-        Aet_Assembler_Error_Invalid_Immediate_Value
-    );
-  }
-
-  Aet_Immediate_Range range = aet_immediate_range(info.extension, 24);
-
-  if (immediate < range.min || immediate > range.max) {
-    return err(
-        Aet_Assembly_Instruction_Result,
-        Aet_Assembler_Error_Invalid_Immediate_Value
-    );
-  }
-
-  u32 instr = (u32)(op) | ((u32)immediate << 8);
+  u32 instr = (u32)(op) | (immediate << 8);
   return ok(Aet_Assembly_Instruction_Result, instr);
 }
 
-// NOTE(nico): This pass only validates the opcodes and then skips to the
-// following lines.
-// Some of the work done here is a bit redundant with the second pass (code
-// generation). Need to see if I can squeeze everything down.
-// With the current design: 1 asm line = 1 32bit instruction The output of this
-// pass should be one total size and one symbole table
 static Aet_Assembly_Parse_Info_Result
 aet_assembler_reserve_size_and_build_symbol_table(
     String source, Allocator allocator
@@ -644,7 +628,6 @@ aet_assembler_reserve_size_and_build_symbol_table(
     }
     instruction_count += instr_opt.value.instruction_count;
 
-    // NOTE(nico): inline, no need to create an assembler struct for this pass
     while (true) {
       Aet_Assembly_Token_Result next_result =
           aet_assembler_consume_token(&parser);
@@ -677,12 +660,13 @@ exit:
 
 /*
   NOTE(nico):
-  I want to move to a 2 pass assembler:
-  - First pass reserves the size of the program  and construct a symbol table
-  needed to support labels.
-  - Second pass assembles the instructions inplace
-  This solves 2 problems. We can support labels and the assembler knows the
-  exact program size before any allocation happens
+  This assembler is working in two passes:
+  - The first one measure a program's size and collect all the symbols (only
+  labels for now)
+  - The second one handles the code generation
+
+  Some work is done in both passes and is a bit redundant. Maybe I will find a
+  way to fold it in the future but for now this is good enough
 */
 Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
   Aet_Assembly_Parser parser = {
@@ -699,7 +683,7 @@ Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
     delete_open_map(parse_info.symbol_table);
   };
 
-  usize pc = 0;
+  parser.symbol_table = parse_info.symbol_table;
   Aet_Program output =
       make_array(output, parse_info.instruction_count, allocator);
   if (output.items == nullptr) {
@@ -723,6 +707,16 @@ Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
 
     if (token.kind == Aet_Assembly_Token_Kind_Newline ||
         token.kind == Aet_Assembly_Token_Kind_Comment) {
+      continue;
+    }
+
+    if (token.kind == Aet_Assembly_Token_Kind_Identifier) {
+      Aet_Assembly_Token_Result colon_result =
+          aet_assembler_expect_token(&parser, Aet_Assembly_Token_Kind_Colon);
+      if (!colon_result.ok) {
+        error = Aet_Assembler_Error_Invalid_Syntax;
+        break;
+      }
       continue;
     }
 
@@ -766,8 +760,8 @@ Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
     }
 
     assert(instr_info.instruction_count == 1);
-    output.items[pc] = instr_result.value;
-    pc += instr_info.instruction_count;
+    output.items[parser.pc] = instr_result.value;
+    parser.pc += instr_info.instruction_count;
 
     Aet_Assembly_Token_Result end_result = aet_assembler_consume_token(&parser);
     if (!end_result.ok) {

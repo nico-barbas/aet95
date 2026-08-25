@@ -73,7 +73,7 @@ Immediates come in two kinds, fixed per instruction:
 - **Signed.** Two's complement, sign-extended when decoded. `imm16` covers -32768..32767, `imm24` covers -8388608..8388607. This is every immediate except the two below.
 - **Zero-extended.** The field holds a raw bit pattern rather than a number, so it is never sign-extended and its range is 0..65535. Only `ori` and `loadui` work this way.
 
-The assembler rejects anything outside the range for the instruction being assembled, so `addi r0, rx0, 40000` and `ori r0, r0, -1` are both errors.
+The assembler rejects anything outside the range for the instruction being assembled, so `addi r0, rx0, 40000` and `ori r0, r0, -1` are both errors. A displacement computed from a label goes through the same check.
 
 `addi r0, rx0, 100` assembles to `0x00640300`:
 
@@ -150,7 +150,7 @@ Note the store operand order: `rd` is the source of the data and `rs1` is the ba
 
 ### Branches
 
-All branch offsets are signed and measured **in instructions, relative to the branch itself**. `beq rd, rs1, 0` is an infinite loop; offset `1` is the following instruction, which is the same as not branching.
+All branch offsets are signed and measured **in instructions, relative to the branch itself**. `beq rd, rs1, 0` is an infinite loop; offset `1` is the following instruction, which is the same as not branching. Note that this differs from MIPS and RISC-V, where the displacement is relative to the *following* instruction. A [label](#labels) written in this position resolves to exactly this displacement.
 
 | Op  | Mnemonic             | Format | Taken when            |
 | --- | -------------------- | ------ | --------------------- |
@@ -294,9 +294,10 @@ One instruction per line, operands separated by commas. Whitespace around operan
 ; count r0 down to zero, accumulating into r2
 addi r0, rx0, 10        ; counter
 addi r1, rx0, 1         ; step
-add r2, r2, r1          ; body
+body:
+add r2, r2, r1
 sub r0, r0, r1
-bneq r0, rx0, -2        ; back to the body
+bneq r0, rx0, body      ; back to the body
 ```
 
 That program leaves `r2 = 10` and stops by falling off the end. Note that it does **not** end in `ret`: `ret` only ever jumps to whatever `rx1` holds, and outside a `call` that is 0, so a top-level `ret` restarts the program from instruction 0 instead of halting. Until there is a halt instruction, running off the end is the only way to stop.
@@ -306,20 +307,66 @@ That program leaves `r2 = 10` and stops by falling off the end. Note that it doe
 - **Hex digits must be lowercase.** `0xbeef` assembles, `0xBEEF` is rejected. The prefix is the only part where case is free.
 - A literal with two `0x` prefixes, like `0x0x1`, is a `Malformed_Number`; a bare `0x` with no digits is an invalid immediate.
 - Mnemonics are lowercase. Register names accept an uppercase `R` (`R0` works) but the `x` in the extended registers must be lowercase (`rx0`, not `RX0`).
-- There are **no labels**. Branch, jump and call take a raw signed instruction offset, which you compute by hand.
+- Branch, jump and call take either a [label](#labels) or a raw signed instruction offset.
 
-The disassembler is the exact inverse: its output re-assembles to a byte-identical program.
+The disassembler is the exact inverse: its output re-assembles to a byte-identical program. It does not reconstruct labels — every offset comes back as a number, since nothing in the encoded program records that a name was ever there.
+
+### Labels
+
+A label names an instruction index. Define one with an identifier followed by a colon, either on its own line or in front of an instruction:
+
+```
+loop:
+add r0, r1, r2
+```
+
+```
+loop: add r0, r1, r2
+```
+
+Both spellings mark the same index. A label occupies no space of its own, it marks the position of whatever instruction comes next. Several labels may share a line or an index, and `a: b: jump a` is legal.
+
+Use one wherever a branch, jump or call takes its offset. Nothing else accepts one:
+
+| Accepts a label                          | Displacement must fit    |
+| ---------------------------------------- | ------------------------ |
+| `beq` `bneq` `blt` `bgeq` `bltu` `bgequ` | -32768..32767            |
+| `jump` `call`                            | -8388608..8388607        |
+
+The displacement is resolved exactly as the [branch](#branches) encoding defines it, `target - pc` counted in instructions from the branch itself, and is then range-checked like any other immediate. A label too far away is an `Invalid_Immediate_Value` — the assembler does not relax the branch into a longer sequence.
+
+Every other immediate rejects a label with `Invalid_Syntax`, including the load and store offsets. This is not an oversight: a label names a **program** index, and program memory is not addressable (see [Memory model](#memory-model)), so there is nothing for a data label to point at and no data section to declare it in.
+
+Naming rules follow the identifier lexer:
+
+- Letters and digits only, and the first character must be a letter. `l0` is a label, `0l` and `my_loop` are not — there are no underscores.
+- Case-sensitive. `Loop` and `loop` are different labels, and referring to one by the other's spelling is an `Unknown_Symbol`.
+- A label may not be spelled like a mnemonic or a register. `add:` and `r0:` are both `Invalid_Syntax`, because the lexer resolves those spellings to instructions and registers before it ever considers an identifier.
+
+Forward references work: labels are collected in full before any instruction is encoded, so a branch may name a label defined later in the file. Defining the same label twice is a `Duplicate_Symbol`; naming one that was never defined is an `Unknown_Symbol`.
+
+A label placed after the last instruction names the address one past the end, which is precisely the clean-stop address (see [Execution model](#execution-model)). Jumping to it is a structured exit:
+
+```
+addi r0, rx0, 7
+jump done
+addi r0, rx0, 99        ; skipped
+done:
+```
+
+That program stops with `r0 = 7` and no fault.
 
 ## Known gaps
 
 Deliberately deferred. Recorded so the current shape isn't mistaken for the intended one.
 
-- **No labels**, which is by far the biggest obstacle to writing anything real by hand.
+- **No branch relaxation.** A label out of reach of its branch is rejected rather than rewritten into an inverted branch over a `jump`, the way GNU assembler would. The ranges are far past anything these machines can hold for now, so the check reads more as an assertion on the assembler's own arithmetic than as a limit a program will meet. It is in place in case it ever needs to grow.
+- **No data labels**, and nothing for them to name — no `.data` section, no way to reserve or initialise RAM from source. Constants have to be materialised with `loadui`/`ori` and stored by hand.
 - **No uppercase hex digits.** `0xBEEF` is rejected; only `a`-`f` are accepted. A lexer limitation, not a deliberate choice.
 - **No immediate forms** of `sub`, `and`, `xor` or the shifts. `or` has one — `ori` — because constant materialisation needs it; the others have no such forcing reason yet.
 - **No remainder or modulo.** Both division forms discard it, so it has to be recovered with a multiply and a subtract.
 - **No arithmetic shift right**, so sign-preserving division by powers of two is not expressible.
-- **No halt instruction.** Falling off the end is the only clean stop, which makes a top-level `ret` an accidental restart rather than an exit. There is also no way to distinguish "finished" from "never started" beyond inspecting `pc`.
+- **No halt instruction.** Falling off the end is the only clean stop. A label after the last instruction at least gives that exit a name, but it is still a jump to the end rather than a stop, and a top-level `ret` remains an accidental restart. There is also no way to distinguish "finished" from "never started" beyond inspecting `pc`.
 - **Only one real device.** `Identity` exists to exercise the bus end to end; `Motor` and `Sensor` are reserved slots with nothing behind them.
 - **No DMA.** Devices move data one word at a time through the CPU, which is fine for a motor and hopeless for anything with real I/O volume.
 - **No interrupts.** `Aet_CPU_Trap` has a single `None` member and nothing raises it, so devices cannot notify a program — polling is the only option.
