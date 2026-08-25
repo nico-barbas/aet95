@@ -4,6 +4,12 @@
 #include "core/allocator.h"
 #include "core/types.h"
 
+/*
+  FIXME(nico):
+  - Should return a result so it is safer to check for allocation error (see
+  list.h)
+*/
+
 typedef u64 (*Open_Map_Hash_Proc)(void *key, usize key_size);
 typedef bool32 (*Open_Map_Key_Eq)(void *k1, void *k2);
 
@@ -86,5 +92,12 @@ void *open_map_next(Open_Map_Iterator *it);
 //////////////////////////////
 u64 open_map_u32_hash(void *key, usize key_size);
 bool32 open_map_u32_eq(void *k1, void *k2);
+
+u64 open_map_string_hash(void *key, usize key_size);
+bool32 open_map_string_eq(void *k1, void *k2);
+#define make_string_open_map(V, cap, _allocator)                               \
+  make_open_map(                                                               \
+      String, V, cap, open_map_string_hash, open_map_string_eq, _allocator     \
+  )
 
 #endif

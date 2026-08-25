@@ -53,6 +53,14 @@ typedef enum Aet_Bit_Extension {
   Aet_Bit_Extension_Signed,
 } Aet_Bit_Extension;
 
+typedef enum Aet_Instruction_Form {
+  Aet_Instruction_Form_None,
+  Aet_Instruction_Form_RRR,
+  Aet_Instruction_Form_RRI,
+  Aet_Instruction_Form_RI,
+  Aet_Instruction_Form_I,
+} Aet_Instruction_Form;
+
 // NOTE(nico): single source of truth for the instruction set. Feeds the opcode
 // enum below, the assembler's token kinds and keyword table, and the
 // disassembler's opcode -> text mapping. Adding an instruction should only mean
@@ -65,44 +73,45 @@ typedef enum Aet_Bit_Extension {
 // Only /* */ comments may appear between rows: line splicing happens before
 // comment removal, so a // comment would swallow every row below it.
 //
-// mnemonic | text | opcode | immediate extension
+// mnemonic | text | opcode | form | immediate extension | instruction count
 #define AET_INSTRUCTIONS(X)                                                    \
-  X(Addi, "addi", 0, Signed)                                                   \
-  X(Add, "add", 1, None)                                                       \
-  X(Sub, "sub", 2, None)                                                       \
-  X(Mul, "mul", 3, None)                                                       \
-  X(Div, "div", 4, None)                                                       \
-  X(Divu, "divu", 5, None)                                                     \
-  X(And, "and", 6, None)                                                       \
-  X(Or, "or", 7, None)                                                         \
+  X(Addi, "addi", 0, RRI, Signed, 1)                                           \
+  X(Add, "add", 1, RRR, None, 1)                                               \
+  X(Sub, "sub", 2, RRR, None, 1)                                               \
+  X(Mul, "mul", 3, RRR, None, 1)                                               \
+  X(Div, "div", 4, RRR, None, 1)                                               \
+  X(Divu, "divu", 5, RRR, None, 1)                                             \
+  X(And, "and", 6, RRR, None, 1)                                               \
+  X(Or, "or", 7, RRR, None, 1)                                                 \
   /* ori and loadui carry bit patterns, not numbers, so they zero-extend */    \
-  X(Ori, "ori", 8, Zero)                                                       \
-  X(Xor, "xor", 9, None)                                                       \
-  X(Shl, "shiftl", 10, None)                                                   \
-  X(Shr, "shiftr", 11, None)                                                   \
-  X(Lui, "loadui", 12, Zero)                                                   \
-  X(Lb, "loadb", 13, Signed)                                                   \
-  X(Lbu, "loadbu", 14, Signed)                                                 \
-  X(Lh, "loadh", 15, Signed)                                                   \
-  X(Lhu, "loadhu", 16, Signed)                                                 \
-  X(Lw, "loadw", 17, Signed)                                                   \
-  X(Sb, "storeb", 18, Signed)                                                  \
-  X(Sh, "storeh", 19, Signed)                                                  \
-  X(Sw, "storew", 20, Signed)                                                  \
+  X(Ori, "ori", 8, RRI, Zero, 1)                                               \
+  X(Xor, "xor", 9, RRR, None, 1)                                               \
+  X(Shl, "shiftl", 10, RRR, None, 1)                                           \
+  X(Shr, "shiftr", 11, RRR, None, 1)                                           \
+  X(Lui, "loadui", 12, RI, Zero, 1)                                            \
+  X(Lb, "loadb", 13, RRI, Signed, 1)                                           \
+  X(Lbu, "loadbu", 14, RRI, Signed, 1)                                         \
+  X(Lh, "loadh", 15, RRI, Signed, 1)                                           \
+  X(Lhu, "loadhu", 16, RRI, Signed, 1)                                         \
+  X(Lw, "loadw", 17, RRI, Signed, 1)                                           \
+  X(Sb, "storeb", 18, RRI, Signed, 1)                                          \
+  X(Sh, "storeh", 19, RRI, Signed, 1)                                          \
+  X(Sw, "storew", 20, RRI, Signed, 1)                                          \
   /* the u suffix selects an unsigned comparison; the branch offset is still   \
      a signed displacement */                                                  \
-  X(Beq, "beq", 21, Signed)                                                    \
-  X(Bneq, "bneq", 22, Signed)                                                  \
-  X(Blt, "blt", 23, Signed)                                                    \
-  X(Bgeq, "bgeq", 24, Signed)                                                  \
-  X(Bltu, "bltu", 25, Signed)                                                  \
-  X(Bgequ, "bgequ", 26, Signed)                                                \
-  X(Jmp, "jump", 27, Signed)                                                   \
-  X(Call, "call", 28, Signed)                                                  \
-  X(Ret, "ret", 29, None)
+  X(Beq, "beq", 21, RRI, Signed, 1)                                            \
+  X(Bneq, "bneq", 22, RRI, Signed, 1)                                          \
+  X(Blt, "blt", 23, RRI, Signed, 1)                                            \
+  X(Bgeq, "bgeq", 24, RRI, Signed, 1)                                          \
+  X(Bltu, "bltu", 25, RRI, Signed, 1)                                          \
+  X(Bgequ, "bgequ", 26, RRI, Signed, 1)                                        \
+  X(Jmp, "jump", 27, I, Signed, 1)                                             \
+  X(Call, "call", 28, I, Signed, 1)                                            \
+  X(Ret, "ret", 29, None, None, 1)
 
 typedef enum Aet_CPU_Opcode : byte {
-#define X(name, text, opcode, ext) Aet_CPU_Opcode_##name = (opcode),
+#define X(name, text, opcode, form, ext, instr_count)                          \
+  Aet_CPU_Opcode_##name = (opcode),
   AET_INSTRUCTIONS(X)
 #undef X
       Aet_CPU_Opcode_MAX,
@@ -110,7 +119,7 @@ typedef enum Aet_CPU_Opcode : byte {
 
 // NOTE(nico): aet_instruction_lookup is indexed by opcode, so a gap in the
 // numbering above would leave a zeroed hole in it.
-#define X(name, text, opcode, ext) +1
+#define X(name, text, opcode, form, ext, instr_count) +1
 static_assert(
     0 AET_INSTRUCTIONS(X) == Aet_CPU_Opcode_MAX,
     "opcode numbers must be dense and MAX must follow the last instruction"

@@ -7,10 +7,13 @@
 
 typedef enum Aet_Assembler_Error {
   Aet_Assembler_Error_None,
+  Aet_Assembler_Error_Internal_Failure,
   Aet_Assembler_Error_Malformed_Number,
   Aet_Assembler_Error_Invalid_Identifier,
   Aet_Assembler_Error_Invalid_Syntax,
   Aet_Assembler_Error_Invalid_Immediate_Value,
+  Aet_Assembler_Error_Duplicate_Symbol,
+  Aet_Assembler_Error_Unknown_Symbol,
 } Aet_Assembler_Error;
 
 typedef Result(Aet_Program, Aet_Assembler_Error) Aet_Assembler_Result;
