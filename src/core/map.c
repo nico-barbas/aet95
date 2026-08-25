@@ -129,6 +129,9 @@ Open_Map open_map_ensure_cap(Open_Map map, usize item_count) {
 // for given key
 bool32 open_map_insert_kv(Open_Map map, void *key, void *value) {
   Open_Map_Header *header = open_map_header(map);
+  if (header->cap == 0) {
+    return false;
+  }
 
   u64 hash = header->hash(key, header->key_size);
   usize index = (usize)(hash % header->cap);
@@ -159,6 +162,9 @@ bool32 open_map_insert_kv(Open_Map map, void *key, void *value) {
 
 void *internal_open_map_get(Open_Map map, void *key) {
   Open_Map_Header *header = open_map_header(map);
+  if (header->cap == 0) {
+    return nullptr;
+  }
 
   u64 hash = header->hash(key, header->key_size);
   usize index = (usize)(hash % header->cap);
@@ -256,7 +262,7 @@ bool32 open_map_remove_raw(Open_Map map, void *key) {
 //////////////////////////////
 // Provided defaults
 //////////////////////////////
-u64 open_map_u32_hash(void *key, usize key_size) {
+u64 open_map_u32_hash(const void *key, usize key_size) {
   (void)key_size;
   return hash_fnv1a(key, sizeof(u32));
 }
@@ -267,8 +273,9 @@ bool32 open_map_u32_eq(void *k1, void *k2) {
   return (*a) == (*b);
 }
 
-u64 open_map_string_hash(void *key, usize key_size) {
-  String *str = (String *)key;
+u64 open_map_string_hash(const void *key, usize key_size) {
+  (void)key_size;
+  const String *str = (const String *)key;
   return hash_fnv1a(str->data, str->len);
 }
 
