@@ -16,6 +16,10 @@ typedef enum Font_ID {
   Font_ID_MAX,
 } Font_ID;
 
+typedef enum Texture_ID {
+  Texture_ID_MAX,
+} Texture_ID;
+
 typedef struct Database {
   Model model_table[Model_ID_MAX];
   Font_Atlas font_table[Font_ID_MAX];

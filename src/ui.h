@@ -71,6 +71,8 @@ typedef struct Text_Editor {
   Renderer2D *tmp_renderer;
   Text_Screen screen;
 
+  bool32 focused;
+
   char line_buffer[512];
   usize line_len;
 } Text_Editor;

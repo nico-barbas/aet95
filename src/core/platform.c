@@ -453,6 +453,7 @@ bool32 app_update(App *app) {
 
   for (usize i = 0; i < APP_KEYBOARD_KEY_CAP; i += 1) {
     app->keys[i].previous = app->keys[i].current;
+    app->keys[i].presses = 0;
   }
 
   glfwPollEvents();
@@ -543,6 +544,10 @@ bool8 app_key_pressed(Keyboard_Key key) {
   return _app->keys[key].current;
 }
 
+u32 app_key_press_count(Keyboard_Key key) {
+  return (u32)_app->keys[key].presses;
+}
+
 bool8 app_key_just_pressed(Keyboard_Key key) {
   return _app->keys[key].current && !_app->keys[key].previous;
 }
@@ -616,6 +621,10 @@ static void input_key_callback(
   (void)mods;
   if (key >= 0 && key < APP_KEYBOARD_KEY_CAP) {
     _app->keys[key].current = action == GLFW_PRESS || action == GLFW_REPEAT;
+    if (_app->keys[key].current) {
+      _app->keys[key].presses =
+          (u8)min_u32((u32)_app->keys[key].presses + 1, 255);
+    }
   }
 }
 

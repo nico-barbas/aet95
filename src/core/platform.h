@@ -91,6 +91,7 @@ typedef struct App {
   struct {
     bool8 previous;
     bool8 current;
+    u8 presses;
   } keys[APP_KEYBOARD_KEY_CAP];
 } App;
 
@@ -252,6 +253,7 @@ bool8 app_mouse_pressed(Mouse_Button button);
 bool8 app_mouse_just_pressed(Mouse_Button button);
 bool8 app_key_pressed(Keyboard_Key key);
 bool8 app_key_just_pressed(Keyboard_Key key);
+u32 app_key_press_count(Keyboard_Key key);
 Text_Array app_chars_pressed();
 
 /////////////////////////////

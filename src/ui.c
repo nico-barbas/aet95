@@ -181,16 +181,20 @@ static void text_editor_cells_view(Rectangle rect, rawptr data) {
 static void text_editor_view(Text_Editor *ed) {
   // Font_Atlas *font = &_db.font_table[Font_ID_IBM_Default];
 
-  Text_Array chars = app_chars_pressed();
-  for (usize i = 0; i < chars.len; i += 1) {
-    // ed->line_buffer[ed->line_len++] = (char)chars.items[i];
-    text_screen_write_ascii_char(
-        &ed->screen, (char)chars.items[i], Theme_Color_Foreground
-    );
-  }
+  if (ed->focused) {
+    Text_Array chars = app_chars_pressed();
+    for (usize i = 0; i < chars.len; i += 1) {
+      // ed->line_buffer[ed->line_len++] = (char)chars.items[i];
+      text_screen_write_ascii_char(
+          &ed->screen, (char)chars.items[i], Theme_Color_Foreground
+      );
+    }
 
-  if (app_key_pressed(Keyboard_Key_Backspace)) {
-    text_screen_delete_at_cursor(&ed->screen, 1);
+    if (app_key_pressed(Keyboard_Key_Backspace)) {
+      text_screen_delete_at_cursor(
+          &ed->screen, app_key_press_count(Keyboard_Key_Backspace)
+      );
+    }
   }
 
   element_container((&(Element_Create_Info){
@@ -201,6 +205,13 @@ static void text_editor_view(Text_Editor *ed) {
       .base.constraints.padding = element_constraint(8, 8, 8, 8),
     },
   })) {
+    Element_Client_Info element = get_current_element();
+    Vec2 m_pos = app_mouse_position();
+
+    if (app_mouse_just_pressed(Mouse_Button_Left)) {
+      ed->focused = rect_point_in(element.computed_rect, m_pos.x, m_pos.y);
+    }
+
     element_custom((&(Element_Create_Info){
       .sizing =
           {.width = element_sizing_fixed(400),

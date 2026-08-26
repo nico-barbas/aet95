@@ -188,6 +188,22 @@ bool32 mesh_primitive_update_from_geometry(
 // Creating a flexible data structure with user supplied textures and shaders
 // should be good enough for 99% of the use cases. The only problem is shader
 // structure and uniform and how to do it without exposing the entire plumbings?
+
+// [26-08-2026]: Start of the 2d refactor
+// The idea is to separate the renderer states and the bind groups needed for a
+// pass. Every begin and end require a Renderer2D_Batch_Info holding the bind
+// group, the font used, and the textures. This still isn't the best but a lot
+// more flexible than whatever this mess is. It would need a batch info cache,
+// and a way to hash the combination of the 3 textures (their handles?). One of
+// the goals is also to remove the dependency to the Renderer2D when creating
+// resources. Maybe move the resource ownership into the db like it's meant to
+// be. The Renderer2D should only own the geometry gpu memory and the pipeline
+//
+// The only problem I can see before implementing it is the restriction on the
+// font size. This is a massive pain to write the game's ui and puts a lot of
+// restrictions and fuckery on the UI command drain.
+// One solution would be to go with SDF, but I've never implemented it and idk
+// how much work that imposes on every part of the application
 ////////////////////////////////////
 typedef struct Vertex2D {
   Vec2 position;
