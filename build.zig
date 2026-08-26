@@ -32,6 +32,20 @@ const c_flags = [_][]const u8{
     "-fblocks",
 };
 
+// The assembler, the VM, and the core they lean on. Deliberately not unity.c:
+// that jumbo TU also carries the renderer, which would drag GLFW and wgpu into
+// a test binary with no use for either.
+const test_sources = [_][]const u8{
+    "src/asm.c",
+    "src/hal.c",
+    "src/core/allocator.c",
+    "src/core/log.c",
+    "src/core/map.c",
+    "src/core/math.c",
+    "src/core/strings.c",
+    "src/core/runtime.c",
+};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -40,6 +54,11 @@ pub fn build(b: *std.Build) void {
         buildWeb(b, optimize);
         return;
     }
+
+    // Registered before the wgpu lookup below, which returns early when that
+    // lazy dependency has not been fetched yet. Past it, a fresh checkout would
+    // silently have no test step at all.
+    addTests(b, target, optimize);
 
     const exe_mod = b.createModule(.{
         .target = target,
@@ -92,6 +111,28 @@ pub fn build(b: *std.Build) void {
     run.step.dependOn(b.getInstallStep());
     if (b.args) |args| run.addArgs(args);
     b.step("run", "Build and run the executable").dependOn(&run.step);
+}
+
+fn addTests(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    const mod = b.createModule(.{
+        .root_source_file = b.path("tests/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    mod.addCMacro(if (optimize == .Debug) "DEBUG" else "NDEBUG", "1");
+    mod.addIncludePath(b.path("src"));
+    for (test_sources) |file| {
+        mod.addCSourceFile(.{ .file = b.path(file), .flags = &c_flags });
+    }
+
+    const tests = b.addTest(.{ .root_module = mod });
+    const run = b.addRunArtifact(tests);
+    b.step("test", "Run the tests").dependOn(&run.step);
 }
 
 fn buildWeb(b: *std.Build, optimize: std.builtin.OptimizeMode) void {
