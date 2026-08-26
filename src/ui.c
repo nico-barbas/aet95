@@ -10,10 +10,11 @@
 #include "db.h"
 #include "font.h"
 #include "game.h"
-#include "render.h"
+#include "render2d.h"
 
 #include <assert.h>
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 static Text_Editor tmp_text_editor = {0};
@@ -24,12 +25,14 @@ Text_Screen_Error init_text_screen(
     f32 physical_height,
     f32 cell_width,
     f32 cell_height,
+    f32 font_size,
     Allocator allocator
 ) {
   screen->physical_width = physical_width;
   screen->physical_height = physical_height;
   screen->cell_width = cell_width;
   screen->cell_height = cell_height;
+  screen->font_size = font_size;
   screen->width = (usize)(physical_width / cell_width);
   screen->height = (usize)(physical_height / cell_height);
   screen->cells =
@@ -141,6 +144,7 @@ void text_screen_render(
             renderer,
             from_c_str("@"),
             vec2(physical_x, physical_y),
+            screen->font_size,
             BASIC_CLR_WHITE
         );
       }
@@ -154,6 +158,7 @@ void text_screen_render(
           renderer,
           (char)cell->content,
           vec2(physical_x, physical_y),
+          screen->font_size,
           theme.colors[cell->fg]
       );
     }
@@ -209,6 +214,7 @@ static void text_editor_view(Text_Editor *ed) {
     Vec2 m_pos = app_mouse_position();
 
     if (app_mouse_just_pressed(Mouse_Button_Left)) {
+      printf("focus\n");
       ed->focused = rect_point_in(element.computed_rect, m_pos.x, m_pos.y);
     }
 
@@ -223,15 +229,26 @@ static void text_editor_view(Text_Editor *ed) {
 }
 
 void tmp_init_game_view(Renderer2D *renderer, Allocator allocator) {
-  Font_Atlas *font = &_db.font_table[Font_ID_IBM_Default];
+  f32 font_size = 18.f;
+
+  Database_Font_Query font_query =
+      database_get_font_atlas_entry(Font_ID_IBMPlex_Mono, font_size);
+
+  f32 cell_width = font_size;
+  f32 cell_height = font_size;
+  if (font_query.ok) {
+    cell_width = roundf(font_query.value->max_advance);
+    cell_height = font_query.value->line_height;
+  }
 
   tmp_text_editor.tmp_renderer = renderer;
   init_text_screen(
       &tmp_text_editor.screen,
       400,
       600,
-      roundf(font->max_advance),
-      font->line_height,
+      cell_width,
+      cell_height,
+      font_size,
       allocator
   );
 }
@@ -315,7 +332,13 @@ void render_game_view(
       assert(false);
     } break;
     case Element_Render_Command_Text: {
-      draw_text(renderer, cmd.text.chars, cmd.text.origin, cmd.text.color);
+      draw_text(
+          renderer,
+          cmd.text.chars,
+          cmd.text.origin,
+          cmd.text.font.size,
+          cmd.text.color
+      );
     } break;
     case Element_Render_Command_Image: {
       // NOTE(nico): The whole render situation is super annoying. It is too

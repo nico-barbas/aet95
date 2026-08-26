@@ -1,5 +1,6 @@
 #include "db.h"
 
+#include "core/allocator.h"
 #include "core/strings.h"
 #include "core/types.h"
 #include "font.h"
@@ -55,8 +56,35 @@ bool32 init_database(Renderer *renderer, Allocator allocator) {
   }
 
   _db.model_table[Model_ID_Default_Cube] = cube_model_result.value;
-  _db.font_table[Font_ID_IBM_Default] = unwrap(make_font_atlas_from_file(
-      from_c_str("assets/fonts/IBMPlexMono-Regular.ttf"), 18, allocator
-  ));
+
+  Font_Error font_err = init_font_atlas_from_file(
+      &_db.font_table[Font_ID_IBMPlex_Mono],
+      from_c_str("assets/fonts/IBMPlexMono-Regular.ttf"),
+      allocator
+  );
+  assert(font_err == Font_Error_None);
   return true;
+}
+
+Database_Font_Query database_get_font_atlas_entry(Font_ID id, f32 size) {
+  if (id >= Font_ID_MAX) {
+    return err(Database_Font_Query, Database_Error_Invalid_Resource_ID);
+  }
+
+  Font_Atlas *font = &_db.font_table[id];
+  Font_Atlas_Entry_Ptr_Option entry_opt = font_atlas_get_entry(font, size);
+  if (entry_opt.some) {
+    return ok(Database_Font_Query, entry_opt.value);
+  }
+
+  // NOTE(nico): The database need its own scratch allocator. Need to see how
+  // to do that
+  Font_Atlas_Entry_Load_Result entry_load_result =
+      font_atlas_load_font_size(font, size, heap_allocator());
+  if (!entry_load_result.ok) {
+    assert(false);
+    return err(Database_Font_Query, Database_Error_Failed_Stream_Resource);
+  }
+
+  return ok(Database_Font_Query, entry_load_result.value);
 }

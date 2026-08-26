@@ -17,4 +17,5 @@
 #include "hal.c"
 #include "main.c"
 #include "render.c"
+#include "render2d.c"
 #include "ui.c"

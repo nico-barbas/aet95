@@ -11,6 +11,7 @@
 #include "db.h"
 #include "font.h"
 #include "render.h"
+#include "render2d.h"
 #include "ui.h"
 
 #include <assert.h>
@@ -50,15 +51,13 @@ static bool32 parse_window_backend_env(App_Window_Backend *out) {
 
 static Element_Dimensions
 measure_texture_wrapper(Element_Font el_font, String text) {
-  Font_Atlas *font = (Font_Atlas *)el_font.data;
-
-  // NOTE(nico): This is suboptimal but with no font cache, this is annoying to
-  // deal with and I'd rather have a hardcrash for now
-  if (el_font.size != font->line_height) {
-    assert(false);
+  Database_Font_Query font_query =
+      database_get_font_atlas_entry((Font_ID)el_font.user_index, el_font.size);
+  if (!font_query.ok) {
+    return (Element_Dimensions){0};
   }
 
-  Vec2 dim = font_atlas_measure_texture(font, text);
+  Vec2 dim = font_atlas_entry_measure_text(font_query.value, text);
   return (Element_Dimensions){.width = dim.x, .height = dim.y};
 }
 
@@ -110,7 +109,7 @@ void init_game(void) {
 
   init_renderer_2d(
       &_game.renderer_2d,
-      _db.font_table[Font_ID_IBM_Default],
+      Font_ID_IBMPlex_Mono,
       from_c_str(""),
       _game.global_allocator
   );

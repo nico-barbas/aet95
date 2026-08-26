@@ -6,7 +6,7 @@
 #include "core/math.h"
 #include "core/types.h"
 #include "game.h"
-#include "render.h"
+#include "render2d.h"
 
 typedef enum Text_Screen_Error {
   Text_Screen_Error_None,
@@ -40,6 +40,7 @@ typedef struct Text_Screen {
   f32 physical_height;
   f32 cell_width;
   f32 cell_height;
+  f32 font_size;
   usize width;
   usize height;
   Array(Text_Cell) cells;
@@ -54,6 +55,7 @@ Text_Screen_Error init_text_screen(
     f32 physical_height,
     f32 cell_width,
     f32 cell_height,
+    f32 font_size,
     Allocator allocator
 );
 void destroy_text_screen(Text_Screen *screen);

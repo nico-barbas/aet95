@@ -779,6 +779,12 @@ GPU_Texture make_gpu_texture(GPU_Texture_Create_Info *info) {
 
   GPU_Texture texture = {0};
   switch (info->kind) {
+  case GPU_Texture_Create_Info_Empty:
+    texture.width = info->empty.width;
+    texture.height = info->empty.height;
+    texture.space = info->space;
+    channels = (i32)info->empty.channels;
+    break;
   case GPU_Texture_Create_Info_File: {
     // FIXME(nico): check if the file path is null terminated
     i32 width, height;
@@ -830,6 +836,7 @@ GPU_Texture make_gpu_texture(GPU_Texture_Create_Info *info) {
     return (GPU_Texture){0};
   }
 
+  texture.channels = (u32)channels;
   texture.handle = wgpuDeviceCreateTexture(
       _app->gpu_device,
       &(WGPUTextureDescriptor){
@@ -852,25 +859,27 @@ GPU_Texture make_gpu_texture(GPU_Texture_Create_Info *info) {
     return (GPU_Texture){0};
   }
 
-  wgpuQueueWriteTexture(
-      _app->gpu_queue,
-      &(WGPUTexelCopyTextureInfo){
-        .texture = texture.handle,
-        .mipLevel = 0,
-        .aspect = WGPUTextureAspect_All,
-      },
-      data,
-      (usize)(texture.width * texture.height * (u32)channels),
-      &(WGPUTexelCopyBufferLayout){
-        .bytesPerRow = (u32)(texture.width * (u32)channels),
-        .rowsPerImage = (u32)texture.height,
-      },
-      &(WGPUExtent3D){
-        .width = (u32)texture.width,
-        .height = (u32)texture.height,
-        .depthOrArrayLayers = 1,
-      }
-  );
+  if (data != nullptr) {
+    wgpuQueueWriteTexture(
+        _app->gpu_queue,
+        &(WGPUTexelCopyTextureInfo){
+          .texture = texture.handle,
+          .mipLevel = 0,
+          .aspect = WGPUTextureAspect_All,
+        },
+        data,
+        (usize)(texture.width * texture.height * (u32)channels),
+        &(WGPUTexelCopyBufferLayout){
+          .bytesPerRow = (u32)(texture.width * (u32)channels),
+          .rowsPerImage = (u32)texture.height,
+        },
+        &(WGPUExtent3D){
+          .width = (u32)texture.width,
+          .height = (u32)texture.height,
+          .depthOrArrayLayers = 1,
+        }
+    );
+  }
 
   // Only the file path owns its pixels (loaded by stbi); raw memory data
   // stays owned by the caller
@@ -918,6 +927,51 @@ void destroy_gpu_texture(GPU_Texture texture) {
 
 bool32 gpu_texture_is_valid(GPU_Texture texture) {
   return texture.handle != nullptr;
+}
+
+bool32 gpu_texture_write(GPU_Texture texture, GPU_Texture_Write_Info *info) {
+  if (_app == nullptr || _app->gpu_queue == nullptr) {
+    return false;
+  }
+
+  if (info->width == 0 || info->height == 0) {
+    return false;
+  }
+
+  // FIXME(nico): can overflow but don't have safe math for this type and I'm
+  // lazy af
+  u32 offx = (u32)info->offset.x;
+  u32 offy = (u32)info->offset.y;
+  if (offx + info->width > texture.width ||
+      offy + info->height > texture.height) {
+    return false;
+  }
+
+  u32 src_bytes_per_row = texture.channels * info->width;
+
+  wgpuQueueWriteTexture(
+      _app->gpu_queue,
+      &(WGPUTexelCopyTextureInfo){
+        .texture = texture.handle,
+        .origin = {.x = offx, .y = offy},
+        .mipLevel = 0,
+        .aspect = WGPUTextureAspect_All,
+      },
+      info->data,
+      src_bytes_per_row * info->height,
+      &(WGPUTexelCopyBufferLayout){
+        .offset = 0,
+        .bytesPerRow = src_bytes_per_row,
+        .rowsPerImage = info->height
+      },
+      &(WGPUExtent3D){
+        .width = info->width,
+        .height = info->height,
+        .depthOrArrayLayers = 1,
+      }
+  );
+
+  return true;
 }
 
 WGPUTextureView gpu_texture_derive_view(GPU_Texture texture) {

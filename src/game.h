@@ -7,6 +7,7 @@
 #include "core/platform.h"
 #include "core/strings.h"
 #include "render.h"
+#include "render2d.h"
 
 #define FRAME_ALLOCATOR_SIZE MEGABYTE * 128
 #define STARTUP_WINDOW_WIDTH 1280

@@ -326,11 +326,13 @@ typedef struct GPU_Texture {
   GPU_Texture_Space space;
   u32 width;
   u32 height;
+  u32 channels;
 } GPU_Texture;
 
 typedef struct GPU_Texture_Create_Info {
   GPU_Texture_Space space;
   enum {
+    GPU_Texture_Create_Info_Empty,
     GPU_Texture_Create_Info_File,
     GPU_Texture_Create_Info_Memory,
     GPU_Texture_Create_Info_Raw_Memory,
@@ -343,8 +345,20 @@ typedef struct GPU_Texture_Create_Info {
       u32 height;
       u64 channels;
     } raw;
+    struct {
+      u32 width;
+      u32 height;
+      u64 channels;
+    } empty;
   };
 } GPU_Texture_Create_Info;
+
+typedef struct GPU_Texture_Write_Info {
+  byte *data;
+  Vec2Int offset;
+  u32 width;
+  u32 height;
+} GPU_Texture_Write_Info;
 
 typedef enum GPU_Sampler_Filter {
   GPU_Sampler_Filter_Nearest = 0x00000001,
@@ -372,6 +386,7 @@ GPU_Texture make_gpu_depth_texture(u32 width, u32 height);
 void destroy_gpu_texture(GPU_Texture texture);
 
 bool32 gpu_texture_is_valid(GPU_Texture texture);
+bool32 gpu_texture_write(GPU_Texture texture, GPU_Texture_Write_Info *info);
 WGPUTextureView gpu_texture_derive_view(GPU_Texture texture);
 
 GPU_Sampler make_gpu_sampler(GPU_Sampler_Create_Info *info);
