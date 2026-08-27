@@ -13,8 +13,8 @@ typedef enum File_Error {
 
 typedef Result(byte *, File_Error) File_Read_Result;
 
-// Very simple implementation used for reading entire files in one go. If you
-// needs streams, this is not for you
+// NOTE(nico): Very simple implementation used for reading entire files in one
+// go. If you needs streams, this is not for you
 File_Read_Result
 read_entire_file(String path, bool8 null_term, Allocator allocator);
 

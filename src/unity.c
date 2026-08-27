@@ -12,6 +12,7 @@
 #include "core/platform.c"
 #include "core/strings.c"
 #include "db.c"
+#include "document.c"
 #include "font.c"
 #include "game.c"
 #include "hal.c"

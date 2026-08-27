@@ -24,9 +24,22 @@ make_document(Document_Create_Info *info, Allocator allocator) {
     .gap_size = gap_size,
   };
 
+  document.lines = or_return(
+      make_document_line_list(32, allocator),
+      err(Document_Create_Result, Document_Error_Failed_To_Allocate)
+  );
+
+  Document_Line_List_Push_Result line_result =
+      document_line_list_push(&document.lines, &(Document_Line){0});
+  if (!line_result.ok) {
+    delete_document_line_list(&document.lines);
+    return err(Document_Create_Result, Document_Error_Failed_To_Allocate);
+  }
+
   Allocation_Result alloc =
       allocator.alloc(allocator, sizeof(byte) * initial_cap);
   if (alloc.err != Allocation_Error_None) {
+    delete_document_line_list(&document.lines);
     return err(Document_Create_Result, Document_Error_Failed_To_Allocate);
   }
 
@@ -35,6 +48,7 @@ make_document(Document_Create_Info *info, Allocator allocator) {
 }
 
 void destroy_document(Document document) {
+  delete_document_line_list(&document.lines);
   document.allocator.free(document.allocator, document.buffer);
 }
 
@@ -163,7 +177,3 @@ Document_Error document_move_gap(Document *document, usize pos) {
 
   return document_expand_gap(document);
 }
-
-// Document_Error document_write_char(Document *document, byte c) {
-//   if ()
-// }

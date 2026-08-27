@@ -8,6 +8,7 @@
 #include "core/strings.h"
 #include "core/types.h"
 #include "db.h"
+#include "document.h"
 #include "font.h"
 #include "render2d.h"
 
@@ -45,8 +46,9 @@ typedef struct Code_Editor {
   bool32 capture_input;
   f32 caret_blink_time;
 
-  char line_buffer[512];
-  usize line_len;
+  // NOTE(nico): This will need to move to an array once I want to support
+  // multi-tabs
+  Document document;
 } Code_Editor;
 
 typedef enum Window_Flag : u32 {
@@ -625,6 +627,8 @@ static void window_manager_view(Window_Manager *manager) {
 static void init_window(Window_Data *window, Allocator allocator) {
   switch (window->kind) {
   case Window_Kind_Code_Editor: {
+    Code_Editor *editor = &window->editor;
+
     f32 font_size = 18.f;
 
     Database_Font_Query font_query =
@@ -637,8 +641,12 @@ static void init_window(Window_Data *window, Allocator allocator) {
       cell_height = font_query.value->line_height;
     }
 
+    editor->document = unwrap(
+        make_document(&(Document_Create_Info){.initial_cap = 512}, allocator)
+    );
+
     init_text_screen(
-        &window->editor.screen,
+        &editor->screen,
         window->width,
         window->height,
         cell_width,
@@ -653,6 +661,7 @@ static void init_window(Window_Data *window, Allocator allocator) {
 static void destroy_window(Window_Data *window) {
   switch (window->kind) {
   case Window_Kind_Code_Editor:
+    destroy_document(window->editor.document);
     destroy_text_screen(&window->editor.screen);
     break;
   }
@@ -684,12 +693,17 @@ static void code_editor_view(Window_Data *window) {
   if (editor->capture_input) {
     Text_Array chars = app_chars_pressed();
     for (usize i = 0; i < chars.len; i += 1) {
+      document_write_char(&editor->document, (char)chars.items[i]);
       text_screen_write_ascii_char(
           &editor->screen, (char)chars.items[i], Theme_Color_Foreground
       );
     }
 
     if (app_key_pressed(Keyboard_Key_Backspace)) {
+      document_delete_chars(
+          &editor->document, app_key_press_count(Keyboard_Key_Backspace)
+      );
+
       text_screen_set_cell_background_color(
           &editor->screen, editor->screen.cursor, Theme_Color_Transparent
       );
