@@ -35,6 +35,8 @@ u32 min_u32(u32 a, u32 b);
 
 u64 min_u64(u64 a, u64 b);
 
+usize max_usize(usize a, usize b);
+
 //////////////////////////////////
 // Safe math
 //////////////////////////////////

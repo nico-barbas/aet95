@@ -10,6 +10,14 @@
 #include <assert.h>
 #include <stddef.h>
 
+/*
+  FIXME(nico):
+  Use-after-free when the list of elements grows. Move an index based linked
+  list
+*/
+
+#define ELEMENT_ID_STACK_CAP 64
+
 typedef enum Element_Error {
   Element_Error_None = 0,
   Element_Error_Failed_To_Initialize_Context,
@@ -241,7 +249,7 @@ typedef struct Element_Internal_Style {
 } Element_Internal_Style;
 
 typedef struct Element_Create_Info {
-  Option(u32) id;
+  Option(u64) id;
   Element_Flags override_flags;
   Element_Style style;
   Element_Layout_Kind layout;
@@ -262,7 +270,7 @@ typedef struct Element_Create_Info {
 
 typedef struct Element Element;
 struct Element {
-  u32 id;
+  u64 id;
   Element_Flags flags;
   Element_Internal_Style style;
 
@@ -405,6 +413,10 @@ typedef struct Element_Context {
   Element_Ptr_List element_roots;
   Element_Ptr_List element_stack;
   Open_Map element_cache;
+
+  u64 id_seed_stack[ELEMENT_ID_STACK_CAP];
+  usize id_seed_stack_len;
+
   Element *current_element;
   Element *active_element;
 
@@ -447,6 +459,8 @@ void set_pointer_state(
     Element_Context *ctx, Vec2 m_pos, bool32 m_left, bool32 m_right
 );
 void set_delta_time(Element_Context *ctx, f32 dt);
+void push_element_id_seed(u64 seed);
+void pop_element_id_seed();
 
 void begin_ui(Element_Context *ctx);
 Element_Render_Command_Buffer end_ui(Element_Context *ctx);

@@ -109,6 +109,10 @@ u64 min_u64(u64 a, u64 b) {
   return a > b ? b : a;
 }
 
+usize max_usize(usize a, usize b) {
+  return a > b ? a : b;
+}
+
 //////////////////////////////////
 // Safe math
 //////////////////////////////////

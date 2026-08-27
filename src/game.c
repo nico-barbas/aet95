@@ -146,6 +146,7 @@ void close_game(void) {
   destroy_renderer(&_game.renderer);
   destroy_renderer_2d(&_game.renderer_2d);
   destroy_debug_renderer(&_game.debug_renderer);
+  destroy_view();
 
   _game.global_allocator.free(_game.global_allocator, _game.frame_arena.buf);
   close_app(&_game.app);

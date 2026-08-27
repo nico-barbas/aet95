@@ -65,6 +65,20 @@ typedef struct Element_Computed_Properties {
 ///////////////////////
 // Helpers
 ///////////////////////
+static u64 element_id_mix(u64 acc, u64 value) {
+  const u64 element_id_mix_c0 = 0x9E3779B97F4A7C15ull;
+  const u64 element_id_mix_c1 = 0xBF58476D1CE4E5B9ull;
+  const u64 element_id_mix_c2 = 0x94D049BB133111EBull;
+
+  u64 h = acc ^ (value * element_id_mix_c0);
+  h ^= h >> 30;
+  h *= element_id_mix_c1;
+  h ^= h >> 27;
+  h *= element_id_mix_c2;
+  h ^= h >> 31;
+  return h;
+}
+
 static bool32 element_id_eq(void *h1, void *h2) {
   u64 *_h1 = (u64 *)h1;
   u64 *_h2 = (u64 *)h2;
@@ -72,11 +86,9 @@ static bool32 element_id_eq(void *h1, void *h2) {
   return *_h1 == *_h2;
 }
 
-static u64 element_get_handle(Element *element) {
-  u32 lo = element->id;
-  u32 hi = element->parent != nullptr ? element->parent->id : 0;
-  return ((u64)hi << 32) | (u64)lo;
-}
+// static u64 element_get_handle(Element *element) {
+//   return element->id;
+// }
 
 static Element_Iterator element_iterator(Element *element) {
   return (Element_Iterator){
@@ -428,8 +440,7 @@ static void process_element(Element *element) {
     return;
   }
 
-  u64 handle = element_get_handle(element);
-  Element_Cached_Info *cache = open_map_get(_ctx->element_cache, handle);
+  Element_Cached_Info *cache = open_map_get(_ctx->element_cache, element->id);
 
   // TODO(nico): generate stable ids for new elements
 
@@ -462,8 +473,8 @@ static void process_element(Element *element) {
         sizeof(new_cache.constraint_properties)
     );
 
-    open_map_set(_ctx->element_cache, handle, new_cache);
-    cache = open_map_get(_ctx->element_cache, handle);
+    open_map_set(_ctx->element_cache, element->id, new_cache);
+    cache = open_map_get(_ctx->element_cache, element->id);
   }
 
   process_element_events(element, cache);
@@ -483,6 +494,7 @@ process_element_events(Element *element, Element_Cached_Info *cache) {
       cache->transition_time + _ctx->dt,
       element->style.transitions[cache->target_state].duration
   );
+  cache->computed_rect = element->computed_rect;
 
   if (element->flags & Element_Flag_Ignore_Events) {
     return 0;
@@ -610,8 +622,7 @@ process_element_commands(Element *element, Element_Cached_Info *cached_info) {
 // Layouting algorithm
 ///////////////////////
 static void calculate_element_size(Element *element) {
-  u64 handle = element_get_handle(element);
-  Element_Cached_Info *cache = open_map_get(_ctx->element_cache, handle);
+  Element_Cached_Info *cache = open_map_get(_ctx->element_cache, element->id);
   // NOTE(nico): how the fuck is this not crashing on the first frame
 
   Element_Computed_Properties style =
@@ -822,8 +833,7 @@ static void layout_children(Element *element) {
     return;
   }
 
-  u64 handle = element_get_handle(element);
-  Element_Cached_Info *cache = open_map_get(_ctx->element_cache, handle);
+  Element_Cached_Info *cache = open_map_get(_ctx->element_cache, element->id);
 
   Element_Computed_Properties style =
       process_element_computed_properties(&element->style, cache);
@@ -1095,6 +1105,23 @@ void set_delta_time(Element_Context *ctx, f32 dt) {
   ctx->dt = dt;
 }
 
+void push_element_id_seed(u64 seed) {
+  assert(_ctx->id_seed_stack_len < ELEMENT_ID_STACK_CAP);
+
+  u64 top = _ctx->id_seed_stack_len > 0
+                ? _ctx->id_seed_stack[_ctx->id_seed_stack_len - 1]
+                : 0;
+  _ctx->id_seed_stack[_ctx->id_seed_stack_len++] = element_id_mix(top, seed);
+}
+
+void pop_element_id_seed() {
+  // NOTE(nico): this probably overflows anyway
+  if (_ctx->id_seed_stack_len == 0) {
+    return;
+  }
+  _ctx->id_seed_stack_len -= 1;
+}
+
 // /**
 //  * @brief ONLY use during a begin_ui/end_ui scope or after manually setting
 //  * the context
@@ -1119,6 +1146,7 @@ void begin_ui(Element_Context *ctx) {
   ctx->element_roots.len = 0;
   ctx->element_stack.len = 0;
   ctx->commands.len = 0;
+  ctx->id_seed_stack_len = 0;
 
   if (ctx->m_left.just_released) {
     ctx->active_element = nullptr;
@@ -1178,12 +1206,21 @@ void begin_element_impl(
     }
   }
 
+  Element *parent = _ctx->current_element;
+  u64 parent_id = parent != nullptr ? parent->id : 0;
+  u64 user_id = info->id.some ? info->id.value : (u64)callsite;
+  u64 seed = _ctx->id_seed_stack_len > 0
+                 ? _ctx->id_seed_stack[_ctx->id_seed_stack_len - 1]
+                 : 0;
+
+  u64 id = element_id_mix(element_id_mix(parent_id, seed), user_id);
+
   // FIXME(nico): [19-08-26] Need to handle this cleanly. But too lazy to do it
   // in this refactor
   usize element_index = unwrap(element_list_push(
       &_ctx->elements,
       &(Element){
-        .id = info->id.some ? info->id.value : callsite,
+        .id = id,
         .flags = flags,
         .layout = info->layout,
         .sizing = {.width = info->sizing.width, .height = info->sizing.height},
@@ -1201,8 +1238,6 @@ void begin_element_impl(
       }
   ));
   Element *element = &_ctx->elements.items[element_index];
-
-  Element *parent = _ctx->current_element;
 
   if (parent != nullptr) {
     element->parent = parent;
@@ -1268,7 +1303,7 @@ void end_element() {
 
 // FIXME(nico): no null pointer guard
 Element_Client_Info get_current_element() {
-  u64 handle = element_get_handle(_ctx->current_element);
+  u64 handle = _ctx->current_element->id;
   Element_Cached_Info *cached_info = open_map_get(_ctx->element_cache, handle);
 
   if (cached_info == nullptr) {

@@ -449,7 +449,8 @@ window_manager_open_window(Window_Manager *manager, Window_Open_Info *info) {
 
 static Window_Error
 window_manager_close_window(Window_Manager *manager, Window_Handle handle) {
-  if (manager->table[handle.id].generation != handle.generation) {
+  if (handle.id >= manager->cap ||
+      manager->table[handle.id].generation != handle.generation) {
     return Window_Error_Invalid_Handle;
   }
 
@@ -476,7 +477,7 @@ window_manager_close_window(Window_Manager *manager, Window_Handle handle) {
         manager->windows[last_window_index];
     manager->windows[removed_window_index].backing_index =
         (u32)removed_window_index;
-    manager->table[last_slot_index].generation =
+    manager->table[last_slot_index].packed =
         (u32)removed_window_index & WINDOW_SLOT_BACKING_INDEX_MASK;
   }
 
@@ -486,18 +487,33 @@ window_manager_close_window(Window_Manager *manager, Window_Handle handle) {
 }
 
 static void window_manager_close_all_windows(Window_Manager *manager) {
+  for (usize i = 0; i < manager->count; i += 1) {
+    delete_string(manager->windows[i].title, manager->allocator);
+    destroy_window(&manager->windows[i]);
+  }
+
   for (usize i = 0; i < manager->cap; i += 1) {
+
     manager->table[i] = (Window_Slot){
       .generation = 1,
       .packed = WINDOW_SLOT_FREE_BIT_MASK,
     };
   }
+
+  manager->count = 0;
 }
 
 static void window_manager_view(Window_Manager *manager) {
   // TODO(nico): Might need some compositing shit
   for (usize i = 0; i < manager->count; i += 1) {
+    Window_Data *window = &manager->windows[i];
+    Window_Slot slot = manager->table[window->slot_index];
+
+    push_element_id_seed(
+        ((u64)window->slot_index << 32) | (u64)slot.generation
+    );
     window_view(&manager->windows[i]);
+    pop_element_id_seed();
   }
 }
 
@@ -521,8 +537,8 @@ static void init_window(Window_Data *window, Allocator allocator) {
 
     init_text_screen(
         &window->editor.screen,
-        window->height,
         window->width,
+        window->height,
         cell_width,
         cell_height,
         font_size,
