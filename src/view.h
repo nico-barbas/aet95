@@ -15,6 +15,7 @@ typedef enum Text_Screen_Error {
 } Text_Screen_Error;
 
 typedef enum Theme_Color : byte {
+  Theme_Color_Transparent,
   Theme_Color_Background,
   Theme_Color_Foreground,
   Theme_Color_Muted,

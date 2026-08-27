@@ -2,4 +2,5 @@
 // at and whatever that file references, so every test file is listed here.
 test {
     _ = @import("asm_test.zig");
+    _ = @import("document_test.zig");
 }

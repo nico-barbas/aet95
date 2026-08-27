@@ -37,6 +37,7 @@ const c_flags = [_][]const u8{
 // a test binary with no use for either.
 const test_sources = [_][]const u8{
     "src/asm.c",
+    "src/document.c",
     "src/hal.c",
     "src/core/allocator.c",
     "src/core/log.c",

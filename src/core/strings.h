@@ -23,6 +23,15 @@ typedef struct String_Reader {
   usize current;
 } String_Reader;
 
+typedef struct String_Chain_Iterator String_Chain_Iterator;
+struct String_Chain_Iterator {
+  String current;
+  usize iteration;
+  rawptr user_data;
+  bool32 (*has_next)(String_Chain_Iterator *it);
+  String (*next)(String_Chain_Iterator *it);
+};
+
 typedef Result(String, Allocation_Error) String_Result;
 
 void delete_string(String str, Allocator allocator);
@@ -54,6 +63,9 @@ String builder_clone_string(String_Builder *b, Allocator allocator);
 bool32 string_reader_is_eof(String_Reader *reader);
 char string_reader_advance(String_Reader *reader);
 char string_reader_peek(String_Reader *reader);
+
+bool32 string_chain_iterator_has_next(String_Chain_Iterator *it);
+String string_chain_iterator_next(String_Chain_Iterator *it);
 
 String filepath_get_dir(String path);
 

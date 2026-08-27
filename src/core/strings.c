@@ -488,6 +488,22 @@ String filepath_get_dir(String path) {
   };
 }
 
+bool32 string_chain_iterator_has_next(String_Chain_Iterator *it) {
+  if (it->has_next == nullptr) {
+    return false;
+  }
+
+  return it->has_next(it);
+}
+
+String string_chain_iterator_next(String_Chain_Iterator *it) {
+  if (it->next == nullptr) {
+    return (String){0};
+  }
+
+  return it->next(it);
+}
+
 ////////////////////////////////////////
 // Helper operations
 ////////////////////////////////////////

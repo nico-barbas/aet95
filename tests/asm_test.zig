@@ -1,8 +1,9 @@
 const std = @import("std");
 const aet = @import("aet.zig");
+const _asm = @import("asm.zig");
 
 const Encoding = struct { source: [*:0]const u8, want: []const u32 };
-const Rejection = struct { source: [*:0]const u8, want: aet.AssemblerError };
+const Rejection = struct { source: [*:0]const u8, want: _asm.AssemblerError };
 
 const encodings = [_]Encoding{
     // R format: rd, rs1, rs2 in bits 11:8, 15:12, 19:16.
@@ -73,21 +74,21 @@ const empty_sources = [_][*:0]const u8{ "", "; only a comment\n", "\n\n\n" };
 test "golden encodings" {
     for (encodings) |case| {
         errdefer std.debug.print("\n  failing source: \"{s}\"\n", .{case.source});
-        try aet.expectProgram(case.source, case.want);
+        try _asm.expectProgram(case.source, case.want);
     }
 }
 
 test "golden rejections" {
     for (rejections) |case| {
         errdefer std.debug.print("\n  failing source: \"{s}\"\n", .{case.source});
-        try std.testing.expectError(case.want, aet.assemble(case.source));
+        try std.testing.expectError(case.want, _asm.assemble(case.source));
     }
 }
 
 test "sources with no instructions assemble to an empty program" {
     for (empty_sources) |source| {
         errdefer std.debug.print("\n  failing source: \"{s}\"\n", .{source});
-        try aet.expectProgram(source, &.{});
+        try _asm.expectProgram(source, &.{});
     }
 }
 
@@ -102,14 +103,14 @@ test "disassembly re-assembles to a byte-identical program" {
     for (sources) |source| {
         errdefer std.debug.print("\n  failing source: \"{s}\"\n", .{source});
 
-        const first = try aet.assemble(source);
-        const text = try aet.disassemble(first);
+        const first = try _asm.assemble(source);
+        const text = try _asm.disassemble(first);
 
         const round_tripped = try std.testing.allocator.allocSentinel(u8, text.len, 0);
         defer std.testing.allocator.free(round_tripped);
         @memcpy(round_tripped, text);
 
-        const second = try aet.assemble(round_tripped.ptr);
-        try std.testing.expectEqualSlices(u32, aet.words(first), aet.words(second));
+        const second = try _asm.assemble(round_tripped.ptr);
+        try std.testing.expectEqualSlices(u32, _asm.words(first), _asm.words(second));
     }
 }

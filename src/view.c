@@ -43,6 +43,8 @@ typedef struct Code_Editor {
   Text_Screen screen;
 
   bool32 capture_input;
+  f32 caret_blink_time;
+
   char line_buffer[512];
   usize line_len;
 } Code_Editor;
@@ -315,6 +317,20 @@ static void text_screen_move_cursor_backward(Text_Screen *screen) {
   screen->cursor.x -= 1;
 }
 
+static bool32 text_screen_set_cell_background_color(
+    Text_Screen *screen, Vec2Int coord, Theme_Color color
+) {
+  if (coord.x < 0 || coord.x >= (i32)screen->width || coord.y < 0 ||
+      coord.y >= (i32)screen->height) {
+    return false;
+  }
+
+  usize index = text_screen_coord_to_index(screen, coord);
+  screen->cells.items[index].bg = color;
+
+  return true;
+}
+
 static void
 text_screen_write_ascii_char(Text_Screen *screen, char c, Theme_Color fg) {
   if (c == '\n') {
@@ -368,17 +384,21 @@ static void text_screen_render(
 
       f32 physical_x = (f32)x * screen->cell_width + off_x + origin.x;
       f32 physical_y = (f32)y * screen->cell_height + off_y + origin.y;
-      if (vec2int_eq(screen->cursor, coord)) {
-        draw_text(
+
+      Text_Cell *cell = array_get_ptr(screen->cells, index);
+      if (cell->bg != Theme_Color_Transparent) {
+        draw_rect(
             renderer,
-            from_c_str("@"),
-            vec2(physical_x, physical_y),
-            screen->font_size,
-            theme.colors[Theme_Color_Foreground]
+            (Rectangle){
+              .x = physical_x,
+              .y = physical_y,
+              .width = screen->cell_width,
+              .height = screen->cell_height
+            },
+            theme.colors[cell->bg]
         );
       }
 
-      Text_Cell *cell = array_get_ptr(screen->cells, index);
       if (!cell->present) {
         continue;
       }
@@ -657,6 +677,41 @@ static void code_editor_cells_view(Rectangle rect, rawptr data) {
 }
 
 static void code_editor_view(Window_Data *window) {
+  static f32 caret_blink_duration = 1.f;
+
+  Code_Editor *editor = &window->editor;
+
+  if (editor->capture_input) {
+    Text_Array chars = app_chars_pressed();
+    for (usize i = 0; i < chars.len; i += 1) {
+      text_screen_write_ascii_char(
+          &editor->screen, (char)chars.items[i], Theme_Color_Foreground
+      );
+    }
+
+    if (app_key_pressed(Keyboard_Key_Backspace)) {
+      text_screen_set_cell_background_color(
+          &editor->screen, editor->screen.cursor, Theme_Color_Transparent
+      );
+      text_screen_delete_at_cursor(
+          &editor->screen, app_key_press_count(Keyboard_Key_Backspace)
+      );
+    }
+  }
+
+  editor->caret_blink_time += app_get_elapsed_time();
+  if (editor->caret_blink_time >= caret_blink_duration) {
+    editor->caret_blink_time -= caret_blink_duration;
+  }
+
+  text_screen_set_cell_background_color(
+      &editor->screen,
+      editor->screen.cursor,
+      editor->caret_blink_time < caret_blink_duration * 0.5f
+          ? Theme_Color_Transparent
+          : Theme_Color_Foreground
+  );
+
   element_container((&(Element_Create_Info){
     .layout = Element_Layout_Kind_Column,
     .sizing = {.width = element_sizing_fit(), .height = element_sizing_fit()},
@@ -726,25 +781,6 @@ static void code_editor_view(Window_Data *window) {
 
 static Window_Events window_view(Window_Data *window) {
   Window_Events events = 0;
-
-  switch (window->kind) {
-  case Window_Kind_Code_Editor: {
-    if (window->editor.capture_input) {
-      Text_Array chars = app_chars_pressed();
-      for (usize i = 0; i < chars.len; i += 1) {
-        text_screen_write_ascii_char(
-            &window->editor.screen, (char)chars.items[i], Theme_Color_Foreground
-        );
-      }
-
-      if (app_key_pressed(Keyboard_Key_Backspace)) {
-        text_screen_delete_at_cursor(
-            &window->editor.screen, app_key_press_count(Keyboard_Key_Backspace)
-        );
-      }
-    }
-  } break;
-  }
 
   element_container((&(Element_Create_Info){
     .layout = Element_Layout_Kind_Column,
