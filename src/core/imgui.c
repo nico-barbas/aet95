@@ -112,7 +112,9 @@ static Element_State element_state_derive_from_events(Element_Events e) {
 static Element_Variable_Color
 variable_color_lerp(Element_Variable_Color a, Element_Variable_Color b, f32 t) {
   if (a.is_cardinal && b.is_cardinal) {
-    Element_Variable_Color result = {0};
+    Element_Variable_Color result = {
+      .is_cardinal = true,
+    };
 
     for (usize i = 0; i < Cardinality_4D_MAX; i += 1) {
       result.cardinal[i] = color_lerp(a.cardinal[i], b.cardinal[i], t);

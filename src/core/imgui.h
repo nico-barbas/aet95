@@ -221,6 +221,7 @@ typedef struct Element_Style {
 
   // Non-animated
   void *font_data;
+  i32 font_index;
   Element_Image_Option image_options;
 } Element_Style;
 

@@ -18,4 +18,4 @@
 #include "main.c"
 #include "render.c"
 #include "render2d.c"
-#include "ui.c"
+#include "view.c"

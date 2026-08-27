@@ -346,6 +346,56 @@ void draw_rect(Renderer2D *renderer, Rectangle rect, Color color) {
   );
 }
 
+void draw_rect_outline(
+    Renderer2D *renderer, Rectangle rect, f32 thickness, Color color
+) {
+  // NOTE(nico): the outline is drawn inside the rect's bounds. The vertical
+  // edges are inset so that the corners aren't covered twice, which would
+  // blend on top of each other with a translucent color
+  f32 t = min_f32(thickness, min_f32(rect.width, rect.height) * 0.5f);
+  if (t <= 0.f) {
+    return;
+  }
+
+  draw_rect(
+      renderer,
+      (Rectangle){
+        .x = rect.x, .y = rect.y, .width = rect.width, .height = t
+      },
+      color
+  );
+  draw_rect(
+      renderer,
+      (Rectangle){
+        .x = rect.x,
+        .y = rect.y + rect.height - t,
+        .width = rect.width,
+        .height = t,
+      },
+      color
+  );
+  draw_rect(
+      renderer,
+      (Rectangle){
+        .x = rect.x,
+        .y = rect.y + t,
+        .width = t,
+        .height = rect.height - t * 2.f,
+      },
+      color
+  );
+  draw_rect(
+      renderer,
+      (Rectangle){
+        .x = rect.x + rect.width - t,
+        .y = rect.y + t,
+        .width = t,
+        .height = rect.height - t * 2.f,
+      },
+      color
+  );
+}
+
 void draw_quad(
     Renderer2D *renderer,
     Rectangle rect,

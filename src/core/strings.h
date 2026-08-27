@@ -23,13 +23,15 @@ typedef struct String_Reader {
   usize current;
 } String_Reader;
 
+typedef Result(String, Allocation_Error) String_Result;
+
 void delete_string(String str, Allocator allocator);
 
 usize c_str_len(const char *c_str);
 String from_c_str(const char *str);
 String string_slice(String src, usize lo, usize hi);
-String string_clone(String str, Allocator allocator);
-String string_clone_terminated(String str, Allocator allocator);
+String_Result string_clone(String str, Allocator allocator);
+String_Result string_clone_terminated(String str, Allocator allocator);
 bool32 string_is_terminated(String str);
 bool32 string_equal(String s1, String s2);
 // FIXME(nico): Conversion procedures need to handle overflows gracefully

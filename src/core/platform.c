@@ -189,7 +189,7 @@ bool32 init_app(App_Create_Info *info, Allocator allocator) {
   );
   app->window_width = info->window_width;
   app->window_height = info->window_height;
-  app->window_title = string_clone(info->window_title, allocator);
+  app->window_title = unwrap(string_clone(info->window_title, allocator));
 
   if (app->window_handle == nullptr) {
     log_error(&app->logger, "Failed to open a window");

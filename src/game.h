@@ -3,7 +3,6 @@
 
 #include "core/allocator.h"
 #include "core/camera.h"
-#include "core/imgui.h"
 #include "core/platform.h"
 #include "core/strings.h"
 #include "render.h"
@@ -95,7 +94,6 @@ typedef struct Game_State {
 
   u64 time_accumulator;
   Scene scene;
-  Element_Context el_ctx;
 
   String version;
   Allocator global_allocator;

@@ -48,42 +48,49 @@ String string_slice(String str, usize lo, usize hi) {
   };
 }
 
-String string_clone(String str, Allocator allocator) {
+String_Result string_clone(String str, Allocator allocator) {
   Allocation_Result alloc = allocator.alloc(allocator, sizeof(char) * str.len);
   if (alloc.err != Allocation_Error_None) {
-    return (String){0};
+    return err(String_Result, alloc.err);
   }
 
   char *result = (char *)alloc.allocation;
 
   memcpy(result, str.data, sizeof(char) * str.len);
-  return (String){
-    .ptr = result,
-    .data = result,
-    .len = str.len,
-    .is_owned = true,
-    .is_dynamically_allocated = true,
-  };
+  return ok(
+      String_Result,
+      ((String){
+        .ptr = result,
+        .data = result,
+        .len = str.len,
+        .is_owned = true,
+        .is_dynamically_allocated = true,
+      })
+  );
 }
 
-String string_clone_terminated(String str, Allocator allocator) {
+String_Result string_clone_terminated(String str, Allocator allocator) {
   Allocation_Result alloc =
       allocator.alloc(allocator, sizeof(char) * str.len + 1);
   if (alloc.err != Allocation_Error_None) {
-    return (String){0};
+    return err(String_Result, alloc.err);
   }
 
   char *result = (char *)alloc.allocation;
 
   memcpy(result, str.data, sizeof(char) * str.len);
   result[str.len] = '\0';
-  return (String){
-    .ptr = result,
-    .data = result,
-    .len = str.len,
-    .is_owned = true,
-    .is_dynamically_allocated = true,
-  };
+
+  return ok(
+      String_Result,
+      ((String){
+        .ptr = result,
+        .data = result,
+        .len = str.len,
+        .is_owned = true,
+        .is_dynamically_allocated = true,
+      })
+  );
 }
 
 bool32 string_is_terminated(String str) {

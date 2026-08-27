@@ -679,7 +679,7 @@ void init_debug_renderer(
       make_array(renderer->cpu_vertices, DEBUG_LINE_CAP, allocator);
 
   GPU_Vertex_Attribute vertex_attrs[] = {
-    VERTEX_ATTR_F32x2(Debug_Vertex, position, 0),
+    VERTEX_ATTR_F32x3(Debug_Vertex, position, 0),
     VERTEX_ATTR_U32(Debug_Vertex, color, 1),
   };
 

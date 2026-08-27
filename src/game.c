@@ -3,16 +3,14 @@
 #include "asm.h"
 #include "core/allocator.h"
 #include "core/camera.h"
-#include "core/imgui.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/platform.h"
 #include "core/strings.h"
 #include "db.h"
-#include "font.h"
 #include "render.h"
 #include "render2d.h"
-#include "ui.h"
+#include "view.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -47,18 +45,6 @@ static bool32 parse_window_backend_env(App_Window_Backend *out) {
 
   return false;
 #endif
-}
-
-static Element_Dimensions
-measure_texture_wrapper(Element_Font el_font, String text) {
-  Database_Font_Query font_query =
-      database_get_font_atlas_entry((Font_ID)el_font.user_index, el_font.size);
-  if (!font_query.ok) {
-    return (Element_Dimensions){0};
-  }
-
-  Vec2 dim = font_atlas_entry_measure_text(font_query.value, text);
-  return (Element_Dimensions){.width = dim.x, .height = dim.y};
 }
 
 ////////////////////////////////////
@@ -115,13 +101,7 @@ void init_game(void) {
   );
 
   init_scene(&_game.scene, _game.global_allocator);
-  init_element_context(
-      &_game.el_ctx,
-      &(Element_Context_Create_Info){
-        .measure_text_proc = measure_texture_wrapper
-      },
-      _game.global_allocator
-  );
+  init_view(&_game.renderer_2d);
 
   Aet_Machine machine = {0};
   assert(
@@ -139,11 +119,30 @@ void init_game(void) {
   aet_cpu_load_program(&machine.cpu, program);
   aet_machine_run(&machine, 5000);
 
-  tmp_init_game_view(&_game.renderer_2d, _game.global_allocator);
+  push_view_inbound_event((View_Inbound_Event){
+    .kind = View_Inbound_Event_Open_Window,
+    .open_window = (Window_Open_Info){
+      .title = from_c_str("code::builder"),
+      .kind = Window_Kind_Code_Editor,
+      .position = vec2(100, 100),
+      .width = 400,
+      .height = 400,
+    },
+  });
+
+  push_view_inbound_event((View_Inbound_Event){
+    .kind = View_Inbound_Event_Open_Window,
+    .open_window = (Window_Open_Info){
+      .title = from_c_str("code::builder"),
+      .kind = Window_Kind_Code_Editor,
+      .position = vec2(500, 100),
+      .width = 400,
+      .height = 400,
+    },
+  });
 }
 
 void close_game(void) {
-  destroy_element_context(&_game.el_ctx);
   destroy_renderer(&_game.renderer);
   destroy_renderer_2d(&_game.renderer_2d);
   destroy_debug_renderer(&_game.debug_renderer);
@@ -401,6 +400,20 @@ void update_game(void) {
   _game.frame_allocator.free_all(_game.frame_allocator);
 }
 
+////////////////////////////////////
+// Rendering
+////////////////////////////////////
+#if defined(DEBUG)
+static void draw_debug_ground_grid(
+    Debug_Renderer *renderer, f32 extent, f32 step, Color c
+) {
+  for (f32 v = -extent; v <= extent; v += step) {
+    draw_debug_line(renderer, vec3(-extent, 0.f, v), vec3(extent, 0.f, v), c);
+    draw_debug_line(renderer, vec3(v, 0.f, -extent), vec3(v, 0.f, extent), c);
+  }
+}
+#endif
+
 void render_game(void) {
   f32 frame_alpha = (f32)_game.time_accumulator / (f32)FRAME_NS;
   Scene *scene = &_game.scene;
@@ -427,17 +440,18 @@ void render_game(void) {
 
   end_render(&_game.renderer);
 
-  begin_render_2d(
-      &_game.renderer_2d,
-      (f32)_game.app.window_width,
-      (f32)_game.app.window_height
+#if defined(DEBUG)
+  begin_debug_render(
+      &_game.debug_renderer, &render_camera, &_game.renderer.depth_texture
   );
 
-  begin_ui(&_game.el_ctx);
-  game_view(&_game);
-  Element_Render_Command_Buffer cmds = end_ui(&_game.el_ctx);
+  draw_debug_ground_grid(
+      &_game.debug_renderer, 20.f, 1.f, color(0.25f, 0.25f, 0.25f, 1.f)
+  );
 
-  render_game_view(&_game.renderer_2d, cmds);
+  end_debug_render(&_game.debug_renderer);
+#endif
 
-  end_render_2d(&_game.renderer_2d);
+  update_view();
+  render_view((f32)_game.app.window_width, (f32)_game.app.window_height);
 }

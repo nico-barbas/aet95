@@ -85,6 +85,9 @@ void draw_text(
     Renderer2D *renderer, String text, Vec2 origin, f32 size, Color color
 );
 void draw_rect(Renderer2D *renderer, Rectangle rect, Color color);
+void draw_rect_outline(
+    Renderer2D *renderer, Rectangle rect, f32 thickness, Color color
+);
 void draw_quad(
     Renderer2D *renderer,
     Rectangle rect,
