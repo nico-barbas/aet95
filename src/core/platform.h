@@ -251,6 +251,7 @@ void app_capture_mouse(bool32 on);
 
 bool8 app_mouse_pressed(Mouse_Button button);
 bool8 app_mouse_just_pressed(Mouse_Button button);
+bool8 app_mouse_just_released(Mouse_Button button);
 bool8 app_key_pressed(Keyboard_Key key);
 bool8 app_key_just_pressed(Keyboard_Key key);
 u32 app_key_press_count(Keyboard_Key key);

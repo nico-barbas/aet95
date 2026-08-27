@@ -23,6 +23,7 @@
 #define WINDOW_MANAGER_CAP 32
 #define WINDOW_SLOT_BACKING_INDEX_MASK 0x7FFFFFFFu
 #define WINDOW_SLOT_FREE_BIT_MASK 0x80000000u
+#define WINDOW_TITLE_BAR_ID 0x00001
 
 typedef enum Window_Error {
   Window_Error_None,
@@ -31,14 +32,24 @@ typedef enum Window_Error {
   Window_Error_Invalid_Handle,
 } Window_Error;
 
+typedef u32 Window_Events;
+typedef enum Window_Event {
+  Window_Event_Gained_Focus = 1 << 0,
+  Window_Event_Lost_Focus = 1 << 1,
+  Window_Event_Began_Drag = 1 << 2,
+} Window_Event;
+
 typedef struct Code_Editor {
   Text_Screen screen;
+
+  bool32 capture_input;
   char line_buffer[512];
   usize line_len;
 } Code_Editor;
 
 typedef enum Window_Flag : u32 {
   Window_Flag_Focused = 1 << 0,
+  Window_Flag_Dragged = 1 << 1,
 } Window_Flag;
 
 typedef u32 Window_Flags;
@@ -66,6 +77,10 @@ typedef struct Window_Slot {
   u32 packed;
 } Window_Slot;
 
+typedef Result(Window_Handle, Window_Error) Window_Open_Result;
+typedef Option(Window_Handle) Window_Handle_Option;
+typedef Option(Window_Data *) Window_Ptr_Option;
+
 typedef struct Window_Manager {
   Allocator allocator;
 
@@ -73,9 +88,10 @@ typedef struct Window_Manager {
   Window_Slot table[WINDOW_MANAGER_CAP];
   usize count;
   usize cap;
-} Window_Manager;
 
-typedef Result(Window_Handle, Window_Error) Window_Open_Result;
+  Window_Handle_Option focused_window;
+  Window_Handle_Option dragged_window;
+} Window_Manager;
 
 static Window_Error
 init_window_manager(Window_Manager *manager, Allocator allocator);
@@ -85,11 +101,15 @@ window_manager_open_window(Window_Manager *manager, Window_Open_Info *info);
 static Window_Error
 window_manager_close_window(Window_Manager *manager, Window_Handle handle);
 static void window_manager_close_all_windows(Window_Manager *manager);
+static Window_Handle_Option
+window_manager_get_window_handle(Window_Manager *manager, Window_Data *window);
+static Window_Ptr_Option
+window_manager_get_window_ptr(Window_Manager *manager, Window_Handle handle);
 static void window_manager_view(Window_Manager *manager);
 
 static void init_window(Window_Data *window, Allocator allocator);
 static void destroy_window(Window_Data *window);
-static void window_view(Window_Data *window);
+static Window_Events window_view(Window_Data *window);
 
 typedef struct View_Model {
   Allocator global_allocator;
@@ -99,6 +119,9 @@ typedef struct View_Model {
   Renderer2D *renderer; // Borrowed from the game state
   Element_Context ctx;
   Window_Manager window_manager;
+
+  String_Builder builder;
+  char builder_buf[512];
 
   View_Inbound_Event mailbox[VIEW_MODEL_EVENT_CAP];
   usize mailbox_len;
@@ -150,6 +173,7 @@ void init_view(Renderer2D *renderer) {
       g_model.global_allocator
   );
 
+  g_model.builder = make_builder_from_buf(g_model.builder_buf, 512);
   init_window_manager(&g_model.window_manager, g_model.global_allocator);
 }
 
@@ -350,7 +374,7 @@ static void text_screen_render(
             from_c_str("@"),
             vec2(physical_x, physical_y),
             screen->font_size,
-            BASIC_CLR_WHITE
+            theme.colors[Theme_Color_Foreground]
         );
       }
 
@@ -503,7 +527,44 @@ static void window_manager_close_all_windows(Window_Manager *manager) {
   manager->count = 0;
 }
 
+static Window_Handle_Option
+window_manager_get_window_handle(Window_Manager *manager, Window_Data *window) {
+  return some(
+      Window_Handle_Option,
+      ((Window_Handle){
+        .generation = manager->table[window->slot_index].generation,
+        .id = window->slot_index
+      })
+  );
+}
+
+static Window_Ptr_Option
+window_manager_get_window_ptr(Window_Manager *manager, Window_Handle handle) {
+  if (handle.id >= manager->cap ||
+      manager->table[handle.id].generation != handle.generation) {
+    return none(Window_Ptr_Option);
+  }
+
+  u32 backing_index =
+      manager->table[handle.id].packed & WINDOW_SLOT_BACKING_INDEX_MASK;
+  return some(Window_Ptr_Option, &manager->windows[backing_index]);
+}
+
 static void window_manager_view(Window_Manager *manager) {
+  if (manager->dragged_window.some) {
+    Window_Ptr_Option window_opt =
+        window_manager_get_window_ptr(manager, manager->dragged_window.value);
+    assert(window_opt.some);
+
+    Window_Data *window = window_opt.value;
+    if (app_mouse_just_released(Mouse_Button_Left)) {
+      window->flags &= ~Window_Flag_Dragged;
+      manager->dragged_window = none(Window_Handle_Option);
+    } else {
+      window->position = vec2_sub(window->position, app_mouse_delta());
+    }
+  }
+
   // TODO(nico): Might need some compositing shit
   for (usize i = 0; i < manager->count; i += 1) {
     Window_Data *window = &manager->windows[i];
@@ -512,13 +573,34 @@ static void window_manager_view(Window_Manager *manager) {
     push_element_id_seed(
         ((u64)window->slot_index << 32) | (u64)slot.generation
     );
-    window_view(&manager->windows[i]);
+    Window_Events events = window_view(&manager->windows[i]);
     pop_element_id_seed();
+
+    assert(!(
+        events & Window_Event_Gained_Focus && events & Window_Event_Lost_Focus
+    ));
+
+    if (events & Window_Event_Gained_Focus) {
+      window->flags |= Window_Flag_Focused;
+      manager->focused_window =
+          window_manager_get_window_handle(manager, window);
+    }
+
+    if (events & Window_Event_Lost_Focus) {
+      window->flags &= ~Window_Flag_Focused;
+      manager->focused_window = none(Window_Handle_Option);
+    }
+
+    if (events & Window_Event_Began_Drag) {
+      window->flags |= Window_Event_Began_Drag;
+      manager->dragged_window =
+          window_manager_get_window_handle(manager, window);
+    }
   }
 }
 
 //////////////////////////////////////
-// Window_Data implementation
+// Window & Programs implementation
 //////////////////////////////////////
 static void init_window(Window_Data *window, Allocator allocator) {
   switch (window->kind) {
@@ -597,11 +679,8 @@ static void code_editor_view(Window_Data *window) {
     Vec2 m_pos = app_mouse_position();
 
     if (app_mouse_just_pressed(Mouse_Button_Left)) {
-      if (rect_point_in(element.computed_rect, m_pos.x, m_pos.y)) {
-        window->flags |= Window_Flag_Focused;
-      } else {
-        window->flags &= ~Window_Flag_Focused;
-      }
+      window->editor.capture_input =
+          rect_point_in(element.computed_rect, m_pos.x, m_pos.y);
     }
 
     element_custom((&(Element_Create_Info){
@@ -645,10 +724,12 @@ static void code_editor_view(Window_Data *window) {
   }
 }
 
-static void window_view(Window_Data *window) {
-  if (Window_Flag_Focused & window->flags) {
-    switch (window->kind) {
-    case Window_Kind_Code_Editor: {
+static Window_Events window_view(Window_Data *window) {
+  Window_Events events = 0;
+
+  switch (window->kind) {
+  case Window_Kind_Code_Editor: {
+    if (window->editor.capture_input) {
       Text_Array chars = app_chars_pressed();
       for (usize i = 0; i < chars.len; i += 1) {
         text_screen_write_ascii_char(
@@ -661,8 +742,8 @@ static void window_view(Window_Data *window) {
             &window->editor.screen, app_key_press_count(Keyboard_Key_Backspace)
         );
       }
-    } break;
     }
+  } break;
   }
 
   element_container((&(Element_Create_Info){
@@ -686,20 +767,44 @@ static void window_view(Window_Data *window) {
       }
     },
   })) {
+    Element_Client_Info element = get_current_element();
+    Vec2 m_pos = app_mouse_position();
+
+    if (app_mouse_just_pressed(Mouse_Button_Left)) {
+      if (rect_point_in(element.computed_rect, m_pos.x, m_pos.y)) {
+        events |= Window_Event_Gained_Focus;
+      } else if (window->flags & Window_Flag_Focused) {
+        events |= Window_Event_Lost_Focus;
+      }
+    }
 
     element_container((&(Element_Create_Info){
+      .id = {.some = true, .value = WINDOW_TITLE_BAR_ID},
       .layout = Element_Layout_Kind_Row,
       .sizing =
           {
             .width = element_sizing_grow(),
             .height = element_sizing_fit(),
           },
-      .alignment = {.vertical = Element_Alignment_Center},
+      .alignment =
+          {
+            .horizontal = Element_Alignment_Space_Between,
+            .vertical = Element_Alignment_Center,
+          },
       .style = {
-        .base.colors.background = ISW_ORANGE,
+        .base.colors.background =
+            window->flags & Window_Flag_Focused ? ISW_ORANGE : ISW_CREAM_SHADOW,
         .base.constraints.padding = element_constraint(4, 4, 4, 4),
       },
     })) {
+      Element_Client_Info title_element = get_current_element();
+
+      if (app_mouse_just_pressed(Mouse_Button_Left)) {
+        if (rect_point_in(title_element.computed_rect, m_pos.x, m_pos.y)) {
+          events |= Window_Event_Began_Drag;
+        }
+      }
+
       element_label((&(Element_Create_Info){
         .text = window->title,
         .style = {
@@ -715,6 +820,8 @@ static void window_view(Window_Data *window) {
       code_editor_view(window);
     }
   }
+
+  return events;
 }
 
 static void draw_rect_bevel_outline(

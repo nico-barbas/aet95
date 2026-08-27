@@ -158,8 +158,16 @@ Vec2 vec2(f32 x, f32 y) {
   return (Vec2){.raw = {x, y}};
 }
 
+Vec2 vec2_negate(Vec2 v) {
+  return (Vec2){.raw = {-v.x, -v.y}};
+}
+
 Vec2 vec2_add(Vec2 v1, Vec2 v2) {
   return (Vec2){.raw = {v1.x + v2.x, v1.y + v2.y}};
+}
+
+Vec2 vec2_sub(Vec2 v1, Vec2 v2) {
+  return (Vec2){.raw = {v1.x - v2.x, v1.y - v2.y}};
 }
 
 Vec2 vec2_normalize(Vec2 v) {

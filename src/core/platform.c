@@ -540,6 +540,10 @@ bool8 app_mouse_just_pressed(Mouse_Button button) {
   return _app->mouse[button].current && !_app->mouse[button].previous;
 }
 
+bool8 app_mouse_just_released(Mouse_Button button) {
+  return !_app->mouse[button].current && _app->mouse[button].previous;
+}
+
 bool8 app_key_pressed(Keyboard_Key key) {
   return _app->keys[key].current;
 }

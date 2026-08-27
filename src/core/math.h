@@ -183,7 +183,9 @@ typedef struct Packed_Color {
 #define vec2_is_zero(v) ((v).x == 0.f && (v).y == 0.f)
 
 Vec2 vec2(f32 x, f32 y);
+Vec2 vec2_negate(Vec2 v);
 Vec2 vec2_add(Vec2 v1, Vec2 v2);
+Vec2 vec2_sub(Vec2 v1, Vec2 v2);
 Vec2 vec2_normalize(Vec2 v);
 Vec2 vec2_rotate_around(Vec2 v, Vec2 center, f32 angle);
 

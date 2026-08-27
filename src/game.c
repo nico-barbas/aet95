@@ -135,7 +135,7 @@ void init_game(void) {
     .open_window = (Window_Open_Info){
       .title = from_c_str("code::builder"),
       .kind = Window_Kind_Code_Editor,
-      .position = vec2(500, 100),
+      .position = vec2(700, 100),
       .width = 400,
       .height = 400,
     },
