@@ -8,6 +8,7 @@
 #include "core/platform.h"
 #include "core/strings.h"
 #include "db.h"
+#include "hal.h"
 #include "render.h"
 #include "render2d.h"
 #include "view.h"
@@ -360,6 +361,28 @@ static Raw_Camera *scene_active_camera(Scene *scene) {
 /////////////////////////////
 // Main lifecycle hookss
 /////////////////////////////
+static void update_entities(Scene *scene, f32 dt) {
+  (void)dt;
+
+  for (usize i = 0; i < scene->entity_count; i += 1) {
+    Entity *entity = &scene->entities[i];
+
+    switch (entity->kind) {
+    case Entity_Kind_Machine: {
+      usize budget = entity->machine.hardware.cpu.clock_hz / TICK_RATE;
+      aet_machine_run(&entity->machine.hardware, budget);
+    } break;
+    case Entity_Kind_Invalid:
+    case Entity_Kind_MAX:
+      assert(false);
+    }
+
+    if (entity->flags & Entity_Flag_Removed) {
+      remove_entity(scene, get_entity_handle(scene, entity));
+      i -= 1;
+    }
+  }
+}
 
 static void update_active_camera_fixed(Scene *scene, f32 dt) {
   f32 frame_w = (f32)_game.app.window_width;
@@ -388,7 +411,7 @@ void update_game(void) {
     update_active_camera_fixed(scene, fixed_dt);
     scene->active_camera_state.current = *scene_active_camera(scene);
 
-    // update_entities(&_state.db, scene, fixed_dt);
+    update_entities(scene, fixed_dt);
 
     _game.time_accumulator -= FRAME_NS;
     fixed_step_count += 1;
@@ -404,6 +427,30 @@ void update_game(void) {
 ////////////////////////////////////
 // Rendering
 ////////////////////////////////////
+static void scene_render(Scene *scene, Renderer *renderer) {
+  for (usize i = 0; i < scene->entity_count; i += 1) {
+    Entity *entity = &scene->entities[i];
+
+    switch (entity->kind) {
+    case Entity_Kind_Machine: {
+      draw_model(
+          renderer,
+          &(Model_Draw_Info){
+            .model = _db.model_table[entity->model],
+            .transform = mat4_from_trs(
+                entity->position, entity->rotation, vec3(1, 1, 1)
+            ),
+            .color = color(1, 1, 1, 1),
+          }
+      );
+    } break;
+    case Entity_Kind_Invalid:
+    case Entity_Kind_MAX:
+      assert(false);
+    }
+  }
+}
+
 #if defined(DEBUG)
 static void draw_debug_ground_grid(
     Debug_Renderer *renderer, f32 extent, f32 step, Color c
@@ -430,14 +477,7 @@ void render_game(void) {
 
   begin_render(&_game.renderer, &render_camera);
 
-  draw_model(
-      &_game.renderer,
-      &(Model_Draw_Info){
-        .model = _db.model_table[Model_ID_Default_Cube],
-        .transform = mat4_identity(),
-        .color = color(1, 1, 1, 1),
-      }
-  );
+  scene_render(scene, &_game.renderer);
 
   end_render(&_game.renderer);
 

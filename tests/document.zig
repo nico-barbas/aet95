@@ -59,6 +59,102 @@ pub fn textLen(document: *c.Document) usize {
     return c.document_text_len(document);
 }
 
+pub fn positionAt(document: *c.Document, offset: usize) DocumentError!c.Document_Position {
+    const result = c.document_query_position_from_logical_offset(document, offset);
+    return aet.value(result) orelse documentError(aet.errorCode(result).?);
+}
+
+pub fn offsetAt(document: *c.Document, line: usize, col: usize) DocumentError!usize {
+    const result = c.document_query_logical_offset_from_position(
+        document,
+        .{ .line = line, .col = col },
+    );
+    return aet.value(result) orelse documentError(aet.errorCode(result).?);
+}
+
+/// Writes a sentinel into the slot just past the end of the line table. That
+/// slot is inside the allocation but outside `len`, so reading it is a bug the
+/// sanitizer cannot see. Zero is chosen because it is below every real offset,
+/// so a bounds check that consults it will reject a valid position.
+pub fn poisonPastLineTable(document: *c.Document) void {
+    if (document.lines.len < document.lines.cap) {
+        document.lines.items[document.lines.len] = .{ .logical_offset = 0 };
+    }
+}
+
+/// Recomputes the line table from scratch and compares it against the one the
+/// document maintained incrementally, along with `current_line`. `scratch` is
+/// reused across calls so a long fuzz run does not churn the allocator.
+pub fn expectLineTable(
+    document: *c.Document,
+    contents: []const u8,
+    cursor: usize,
+    scratch: *std.ArrayList(usize),
+    allocator: std.mem.Allocator,
+) !void {
+    scratch.clearRetainingCapacity();
+    try scratch.append(allocator, 0);
+    for (contents, 0..) |byte, i| {
+        if (byte == '\n') try scratch.append(allocator, i + 1);
+    }
+
+    {
+        errdefer std.debug.print("  line table disagrees\n", .{});
+        errdefer dumpLineTable(document, scratch.items);
+        try std.testing.expectEqual(scratch.items.len, document.lines.len);
+        for (scratch.items, 0..) |want, i| {
+            try std.testing.expectEqual(want, document.lines.items[i].logical_offset);
+        }
+    }
+
+    var line: usize = 0;
+    while (line + 1 < scratch.items.len and scratch.items[line + 1] <= cursor) {
+        line += 1;
+    }
+    errdefer std.debug.print(
+        "  current_line disagrees: want {d}, got {d} (cursor {d}, {d} line(s))\n",
+        .{ line, document.current_line, cursor, scratch.items.len },
+    );
+    try std.testing.expectEqual(line, document.current_line);
+}
+
+fn dumpLineTable(document: *c.Document, want: []const usize) void {
+    std.debug.print("    want ({d}):", .{want.len});
+    for (want) |start| std.debug.print(" {d}", .{start});
+    std.debug.print("\n    got  ({d}):", .{document.lines.len});
+    for (0..document.lines.len) |i| {
+        std.debug.print(" {d}", .{document.lines.items[i].logical_offset});
+    }
+    std.debug.print("\n", .{});
+}
+
+/// Content length of a line, terminator excluded.
+pub fn lineContentLen(starts: []const usize, line: usize, text_len: usize) usize {
+    const end = if (line + 1 < starts.len) starts[line + 1] - 1 else text_len;
+    return end - starts[line];
+}
+
+pub fn lineStarts(document: *c.Document, out: []usize) []usize {
+    for (0..document.lines.len) |i| out[i] = document.lines.items[i].logical_offset;
+    return out[0..document.lines.len];
+}
+
+/// Writes the line table directly, so a query can be tested without depending
+/// on the maintenance code that normally produces it. Stays within the
+/// capacity `make_document` allocates, so no growth is involved.
+pub fn setLineStarts(document: *c.Document, starts: []const usize) void {
+    std.debug.assert(starts.len <= document.lines.cap);
+    for (starts, 0..) |start, i| document.lines.items[i].logical_offset = start;
+    document.lines.len = starts.len;
+}
+
+/// The line is the last start less than or equal to the offset.
+pub fn referencePosition(starts: []const usize, offset: usize) c.Document_Position {
+    var line: usize = 0;
+    while (line + 1 < starts.len and starts[line + 1] <= offset) line += 1;
+    return .{ .line = line, .col = offset - starts[line] };
+}
+
 /// The document has no read API, so the visible text is reconstructed from the
 /// two live regions: prefix `[0, gap_start)` and suffix `[gap_end, buffer_len)`.
 /// Caller owns the returned slice.

@@ -164,6 +164,7 @@ typedef enum Aet_CPU_Trap {
 } Aet_CPU_Trap;
 
 typedef struct Aet_CPU {
+  usize clock_hz;
   u32 registers[Aet_Register_MAX];
   u32 pc; // Program counter
   Aet_CPU_Flags flags;
@@ -215,9 +216,7 @@ typedef struct Aet_Machine {
 // It could be interesting to have the devices changed at runtime, but not
 // really important for now
 typedef struct Aet_Machine_Create_Info {
-  // TODO(nico):
-  // - cpu clock speed
-  // - ISA revision
+  usize clock_hz;
   usize ram_byte_cap;
   Aet_Device_Available_Set available_devices;
   Aet_Device devices[Aet_Device_Class_MAX];
@@ -231,7 +230,7 @@ void aet_machine_destroy(Aet_Machine *machine);
 // ultimately
 Aet_CPU_Error aet_machine_run(Aet_Machine *machine, usize budget);
 
-Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu);
+Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu, usize clock_hz);
 Aet_CPU_Error aet_cpu_load_program(Aet_CPU *cpu, Aet_Program program);
 Aet_CPU_Error
 aet_cpu_execute_program(Aet_CPU *cpu, Aet_Memory_Bus *bus, usize budget);

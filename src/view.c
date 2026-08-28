@@ -45,6 +45,9 @@ typedef struct Code_Editor {
 
   bool32 capture_input;
   f32 caret_blink_time;
+  Document_Position cursor;
+  usize horizontal_scroll;
+  usize vertical_scroll;
 
   // NOTE(nico): This will need to move to an array once I want to support
   // multi-tabs
@@ -190,6 +193,8 @@ void destroy_view(void) {
 }
 
 void update_view(void) {
+  g_model.frame_allocator.free_all(g_model.frame_allocator);
+
   // Drain the mailbox
   for (usize i = 0; i < g_model.mailbox_len; i += 1) {
     View_Inbound_Event *event = &g_model.mailbox[i];
@@ -289,6 +294,12 @@ static usize text_screen_coord_to_index(Text_Screen *screen, Vec2Int coord) {
   return (usize)coord.y * screen->width + (usize)coord.x;
 }
 
+static void text_screen_clear(Text_Screen *screen) {
+  memset(
+      screen->cells.items, 0, screen->width * screen->height * sizeof(Text_Cell)
+  );
+}
+
 static void text_screen_move_cursor_down(Text_Screen *screen) {
   screen->cursor.x = 0;
   if (screen->cursor.y + 1 >= (i32)screen->height) {
@@ -351,14 +362,6 @@ text_screen_write_ascii_char(Text_Screen *screen, char c, Theme_Color fg) {
   );
   text_screen_move_cursor_forward(screen);
 }
-
-// static void text_screen_write_ascii_string(
-//     Text_Screen *screen, String text, Theme_Color fg
-// ) {
-//   for (usize i = 0; i < text.len; i += 1) {
-//     text_screen_write_ascii_char(screen, text.data[i], fg);
-//   }
-// }
 
 static void text_screen_delete_at_cursor(Text_Screen *screen, usize len) {
   usize end = text_screen_coord_to_index(screen, screen->cursor);
@@ -654,6 +657,11 @@ static void init_window(Window_Data *window, Allocator allocator) {
         font_size,
         allocator
     );
+
+    // NOTE(nico): just to make the compiler shut up about unused functions for
+    // now
+    text_screen_write_ascii_char(&editor->screen, ' ', Theme_Color_Foreground);
+    text_screen_delete_at_cursor(&editor->screen, 1);
   } break;
   }
 }
@@ -669,6 +677,96 @@ static void destroy_window(Window_Data *window) {
 
 static void code_editor_cells_view(Rectangle rect, rawptr data) {
   Window_Data *window = (Window_Data *)data;
+  Code_Editor *editor = &window->editor;
+  text_screen_clear(&editor->screen);
+
+  editor->cursor = unwrap(document_query_position_from_logical_offset(
+      &editor->document, editor->document.gap_start
+  ));
+
+  if (editor->cursor.line < editor->vertical_scroll) {
+    editor->vertical_scroll = editor->cursor.line;
+  } else if (
+      editor->cursor.line >= editor->vertical_scroll + editor->screen.height
+  ) {
+    editor->vertical_scroll = editor->cursor.line - editor->screen.height + 1;
+  }
+
+  if (editor->cursor.col < editor->horizontal_scroll) {
+    editor->horizontal_scroll = editor->cursor.col;
+  } else if (
+      editor->cursor.col >= editor->horizontal_scroll + editor->screen.width
+  ) {
+    editor->horizontal_scroll = editor->cursor.col - editor->screen.width + 1;
+  }
+
+  Vec2Int caret = vec2int(
+      (i32)(editor->cursor.col - editor->horizontal_scroll),
+      (i32)(editor->cursor.line - editor->vertical_scroll)
+  );
+
+  static f32 caret_blink_duration = 1.f;
+
+  editor->caret_blink_time += app_get_elapsed_time();
+  if (editor->caret_blink_time >= caret_blink_duration) {
+    editor->caret_blink_time -= caret_blink_duration;
+  }
+
+  text_screen_set_cell_background_color(
+      &editor->screen,
+      caret,
+      editor->caret_blink_time < caret_blink_duration * 0.5f
+          ? Theme_Color_Transparent
+          : Theme_Color_Foreground
+  );
+
+  usize start = editor->vertical_scroll;
+  usize end =
+      min_usize(start + editor->screen.height, editor->document.lines.len);
+
+  for (usize i = start; i < end; i += 1) {
+    Document_Line_Content content =
+        unwrap(document_query_line_content(&editor->document, i));
+
+    i32 screen_y = (i32)(i - start);
+    i32 screen_x = 0;
+
+    usize rem_scroll = editor->horizontal_scroll;
+    for (usize j = rem_scroll; j < content.head.len; j += 1) {
+      if ((usize)screen_x >= editor->screen.width) {
+        break;
+      }
+
+      Vec2Int coord = vec2int(screen_x, screen_y);
+      usize index = text_screen_coord_to_index(&editor->screen, coord);
+
+      Text_Cell *cell = &editor->screen.cells.items[index];
+      cell->present = true;
+      cell->content = (utf8_char)content.head.data[j];
+      cell->fg = Theme_Color_Foreground;
+
+      screen_x += 1;
+    }
+
+    rem_scroll = editor->horizontal_scroll > content.head.len
+                     ? editor->horizontal_scroll - content.head.len
+                     : 0;
+    for (usize j = rem_scroll; j < content.tail.len; j += 1) {
+      if ((usize)screen_x >= editor->screen.width) {
+        break;
+      }
+
+      Vec2Int coord = vec2int(screen_x, screen_y);
+      usize index = text_screen_coord_to_index(&editor->screen, coord);
+
+      Text_Cell *cell = &editor->screen.cells.items[index];
+      cell->present = true;
+      cell->content = (utf8_char)content.tail.data[j];
+      cell->fg = Theme_Color_Foreground;
+
+      screen_x += 1;
+    }
+  }
 
   text_screen_render(
       &window->editor.screen,
@@ -686,45 +784,60 @@ static void code_editor_cells_view(Rectangle rect, rawptr data) {
 }
 
 static void code_editor_view(Window_Data *window) {
-  static f32 caret_blink_duration = 1.f;
-
   Code_Editor *editor = &window->editor;
 
   if (editor->capture_input) {
     Text_Array chars = app_chars_pressed();
     for (usize i = 0; i < chars.len; i += 1) {
       document_write_char(&editor->document, (char)chars.items[i]);
-      text_screen_write_ascii_char(
-          &editor->screen, (char)chars.items[i], Theme_Color_Foreground
-      );
     }
 
     if (app_key_pressed(Keyboard_Key_Backspace)) {
       document_delete_chars(
           &editor->document, app_key_press_count(Keyboard_Key_Backspace)
       );
+    }
 
-      text_screen_set_cell_background_color(
-          &editor->screen, editor->screen.cursor, Theme_Color_Transparent
-      );
-      text_screen_delete_at_cursor(
-          &editor->screen, app_key_press_count(Keyboard_Key_Backspace)
-      );
+    if (app_key_pressed(Keyboard_Key_Enter)) {
+      usize count = app_key_press_count(Keyboard_Key_Enter);
+      for (usize i = 0; i < count; i += 1) {
+        document_write_char(&editor->document, '\n');
+      }
+    }
+
+    if (app_key_pressed(Keyboard_Key_Left)) {
+      usize count = app_key_press_count(Keyboard_Key_Left);
+      for (usize i = 0; i < count; i += 1) {
+        if (editor->document.gap_start == 0) {
+          break;
+        }
+
+        assert(
+            document_move_gap(
+                &editor->document,
+                editor->document.gap_start > 0 ? editor->document.gap_start - 1
+                                               : 0
+            ) == Document_Error_None
+        );
+      }
+    }
+
+    if (app_key_pressed(Keyboard_Key_Right)) {
+      usize count = app_key_press_count(Keyboard_Key_Right);
+      for (usize i = 0; i < count; i += 1) {
+        if (editor->document.gap_start >=
+            document_text_len(&editor->document)) {
+          break;
+        }
+
+        assert(
+            document_move_gap(
+                &editor->document, editor->document.gap_start + 1
+            ) == Document_Error_None
+        );
+      }
     }
   }
-
-  editor->caret_blink_time += app_get_elapsed_time();
-  if (editor->caret_blink_time >= caret_blink_duration) {
-    editor->caret_blink_time -= caret_blink_duration;
-  }
-
-  text_screen_set_cell_background_color(
-      &editor->screen,
-      editor->screen.cursor,
-      editor->caret_blink_time < caret_blink_duration * 0.5f
-          ? Theme_Color_Transparent
-          : Theme_Color_Foreground
-  );
 
   element_container((&(Element_Create_Info){
     .layout = Element_Layout_Kind_Column,
@@ -764,8 +877,9 @@ static void code_editor_view(Window_Data *window) {
   }
 
   element_container((&(Element_Create_Info){
-    .layout = Element_Layout_Kind_Column,
+    .layout = Element_Layout_Kind_Row,
     .sizing = {.width = element_sizing_grow(), .height = element_sizing_fit()},
+    .alignment = {.horizontal = Element_Alignment_Space_Between},
     .style = {
       .base.linears.border = 1.f,
       .base.linears.child_gap = 4.f,
@@ -784,6 +898,25 @@ static void code_editor_view(Window_Data *window) {
   })) {
     element_label((&(Element_Create_Info){
       .text = from_c_str("compilation successful.."),
+      .style = {
+        .base.linears.font_size = 18.f,
+        .base.colors.text = ISW_BG0,
+        .font_index = Font_ID_IBMPlex_Mono,
+      },
+    }));
+
+    builder_reset(&g_model.builder);
+    builder_write(
+        &g_model.builder,
+        "ln %d, col %d",
+        (i32)editor->cursor.line,
+        (i32)editor->cursor.col
+    );
+    String pos =
+        builder_clone_string(&g_model.builder, g_model.frame_allocator);
+
+    element_label((&(Element_Create_Info){
+      .text = pos,
       .style = {
         .base.linears.font_size = 18.f,
         .base.colors.text = ISW_BG0,

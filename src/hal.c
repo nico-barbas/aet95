@@ -2,6 +2,7 @@
 
 #include "core/allocator.h"
 #include "core/math.h"
+#include "core/types.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -45,7 +46,7 @@ Aet_Machine_Error aet_machine_init(
     .write_u32_fn = aet_identity_device_write_u32,
   };
 
-  if (aet_cpu_init(&machine->cpu) != Aet_CPU_Error_None) {
+  if (aet_cpu_init(&machine->cpu, info->clock_hz) != Aet_CPU_Error_None) {
     return Aet_Machine_Error_Failed_To_Initialize_CPU;
   }
 
@@ -167,8 +168,8 @@ static Aet_Fault aet_bus_write_u32(Aet_Memory_Bus *bus, u32 paddr, u32 value) {
   NOTE(nico): No halt for now even if exists in the enum and flags
 */
 
-Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu) {
-  *cpu = (Aet_CPU){0};
+Aet_CPU_Error aet_cpu_init(Aet_CPU *cpu, usize clock_hz) {
+  *cpu = (Aet_CPU){.clock_hz = clock_hz};
   return Aet_CPU_Error_None;
 }
 

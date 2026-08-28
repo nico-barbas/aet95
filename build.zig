@@ -126,14 +126,43 @@ fn addTests(
         .link_libc = true,
     });
     mod.addCMacro(if (optimize == .Debug) "DEBUG" else "NDEBUG", "1");
+    // `@cImport` does not inherit the `-std=c23` from `c_flags`, so translate-c
+    // parses the headers as C17, where these three are not keywords. Spelling
+    // them as macros costs the C sources nothing: they expand to exactly what
+    // the keywords mean for the `bool8`/`bool32` typedefs in core/types.h.
+    mod.addCMacro("true", "1");
+    mod.addCMacro("false", "0");
+    mod.addCMacro("nullptr", "((void *)0)");
     mod.addIncludePath(b.path("src"));
     for (test_sources) |file| {
         mod.addCSourceFile(.{ .file = b.path(file), .flags = &c_flags });
     }
 
-    const tests = b.addTest(.{ .root_module = mod });
+    // `zig build test -Dtest-filter=<substring>` narrows the run to the tests
+    // whose name contains the substring. Filtering happens at compile time, so
+    // it also keeps the binary small when stepping through one case.
+    const filter = b.option(
+        []const u8,
+        "test-filter",
+        "Only build and run tests whose name contains this substring",
+    );
+
+    const tests = b.addTest(.{
+        .name = "aet95-test",
+        .root_module = mod,
+        .filters = if (filter) |f| &.{f} else &.{},
+    });
+
     const run = b.addRunArtifact(tests);
     b.step("test", "Run the tests").dependOn(&run.step);
+
+    // The test binary normally lives at an opaque cache path. Installing it
+    // gives a stable target for gdb/lldb/raddbg.
+    const install = b.addInstallArtifact(tests, .{});
+    b.step(
+        "test-bin",
+        "Build the test binary to zig-out/bin/aet95-test for a debugger",
+    ).dependOn(&install.step);
 }
 
 fn buildWeb(b: *std.Build, optimize: std.builtin.OptimizeMode) void {

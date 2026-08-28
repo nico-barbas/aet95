@@ -113,6 +113,15 @@ usize max_usize(usize a, usize b) {
   return a > b ? a : b;
 }
 
+usize min_usize(usize a, usize b) {
+  return a > b ? b : a;
+}
+
+usize clamp_usize(usize v, usize min, usize max) {
+  usize t = v < min ? min : v;
+  return t > max ? max : t;
+}
+
 //////////////////////////////////
 // Safe math
 //////////////////////////////////

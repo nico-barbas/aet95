@@ -10,6 +10,8 @@ typedef enum List_Error {
   List_Error_None,
   List_Error_Failed_To_Allocate,
   List_Error_Failed_To_Grow,
+  List_Error_Failed_To_Insert,
+  List_Error_Failed_To_Remove_Range,
 } List_Error;
 
 #endif
@@ -34,6 +36,7 @@ typedef enum List_Error {
 
 #define MAKE_RESULT CONCAT(LIST_TYPE_NAME, _Make_Result)
 #define PUSH_RESULT CONCAT(LIST_TYPE_NAME, _Push_Result)
+#define INSERT_RESULT CONCAT(LIST_TYPE_NAME, _Insert_Result)
 #define LIST_TYPE_OPTION CONCAT(LIST_TYPE_NAME, _Pop_Option)
 
 typedef struct LIST_TYPE_NAME {
@@ -45,6 +48,7 @@ typedef struct LIST_TYPE_NAME {
 
 typedef Result(LIST_TYPE_NAME, List_Error) MAKE_RESULT;
 typedef Result(usize, List_Error) PUSH_RESULT;
+typedef Result(usize, List_Error) INSERT_RESULT;
 typedef Option(LIST_TYPE) LIST_TYPE_OPTION;
 
 static inline MAKE_RESULT
@@ -122,6 +126,47 @@ LIST_FUNCTION(_push)(LIST_TYPE_NAME *list, LIST_TYPE *item) {
   usize i = list->len;
   list->items[list->len++] = *item;
   return ok(PUSH_RESULT, i);
+}
+
+// NOTE(nico): A bit unsure about this behavior, but for my personal need, I
+// think I prefer it to error when inserting outside of the current length
+static inline INSERT_RESULT
+LIST_FUNCTION(_insert_at)(LIST_TYPE_NAME *list, LIST_TYPE *item, usize i) {
+  if (i > list->len) {
+    return err(INSERT_RESULT, List_Error_Failed_To_Insert);
+  }
+
+  if (i == list->len) {
+    usize index = try(INSERT_RESULT, LIST_FUNCTION(_push)(list, item));
+    return ok(INSERT_RESULT, index);
+  }
+
+  if (list->len >= list->cap) {
+    usize new_cap = list->cap == 0 ? DEFAULT_LIST_SIZE : list->cap * 2;
+
+    if (!LIST_FUNCTION(_reserve)(list, new_cap)) {
+      return err(INSERT_RESULT, List_Error_Failed_To_Grow);
+    }
+  }
+
+  usize copy_len = list->len - i;
+  memmove(list->items + i + 1, list->items + i, copy_len * sizeof(LIST_TYPE));
+  list->items[i] = *item;
+  list->len += 1;
+  return ok(INSERT_RESULT, i);
+}
+
+static inline List_Error LIST_FUNCTION(_ordered_remove_range)(
+    LIST_TYPE_NAME *list, usize i, usize count
+) {
+  if (i + count > list->len) {
+    return List_Error_Failed_To_Remove_Range;
+  }
+
+  usize rem = list->len - (i + count);
+  memmove(list->items + i, list->items + i + count, rem * sizeof(LIST_TYPE));
+  list->len -= count;
+  return List_Error_None;
 }
 
 static inline LIST_TYPE_OPTION LIST_FUNCTION(_pop)(LIST_TYPE_NAME *list) {

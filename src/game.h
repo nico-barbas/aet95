@@ -5,6 +5,8 @@
 #include "core/camera.h"
 #include "core/platform.h"
 #include "core/strings.h"
+#include "db.h"
+#include "hal.h"
 #include "render.h"
 #include "render2d.h"
 
@@ -45,7 +47,7 @@ typedef struct Entity_Slot {
 typedef u32 Entity_Kind_Mask;
 typedef enum Entity_Kind {
   Entity_Kind_Invalid,
-  Entity_Kind_Vehicle,
+  Entity_Kind_Machine,
   Entity_Kind_MAX,
 } Entity_Kind;
 
@@ -54,10 +56,16 @@ typedef enum Entity_Flag {
 } Entity_Flag;
 typedef u32 Entity_Flags;
 
+typedef struct Machine_Entity {
+  Aet_Machine hardware;
+} Machine_Entity;
+
 typedef struct Entity {
   Entity_Kind kind;
   Entity_Flags flags;
   i32 slot_id;
+
+  Model_ID model;
 
 #if defined(ENTITY_SCENE_GRAPH_IMPL)
   Entity_Handle_Option parent;
@@ -66,8 +74,15 @@ typedef struct Entity {
   Entity_Handle_Option next;
 #endif
 
+  Vec3 up;
   Vec3 position;
   Quat rotation;
+
+  Vec3 velocity;
+
+  union {
+    Machine_Entity machine;
+  };
 } Entity;
 
 typedef struct Scene {

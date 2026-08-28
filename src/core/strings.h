@@ -25,8 +25,8 @@ typedef struct String_Reader {
 
 typedef struct String_Chain_Iterator String_Chain_Iterator;
 struct String_Chain_Iterator {
-  String current;
   usize iteration;
+  usize user_index;
   rawptr user_data;
   bool32 (*has_next)(String_Chain_Iterator *it);
   String (*next)(String_Chain_Iterator *it);
