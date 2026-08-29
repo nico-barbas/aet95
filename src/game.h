@@ -111,6 +111,15 @@ typedef struct Entity {
   ALWAYS assert in all the begining of all the deviced procedures
 */
 
+typedef enum Navigation_Register : u32 {
+  Navigation_Register_Status = 0,
+  Navigation_Register_Position_X = 1,
+  Navigation_Register_Position_Y = 2,
+  Navigation_Register_Target_X = 3,
+  Navigation_Register_Target_Y = 4,
+  Navigation_Register_Distance = 5,
+} Navigation_Register;
+
 typedef u32 Navigation_Flags;
 typedef enum Navigation_Flag {
   Navigation_Flag_Valid = 1 << 0,
@@ -134,9 +143,13 @@ typedef struct Navigation_Device {
 typedef Result(Vec3, Navigation_Error) Navigation_Position_Result;
 typedef Result(f32, Navigation_Error) Navigation_Distance_Result;
 
+Aet_Fault navigation_device_read_from_register(rawptr data, u32 reg, u32 *out);
+Aet_Fault navigation_device_write_to_register(rawptr data, u32 reg, u32 value);
 Navigation_Flags navigation_device_get_flags(Navigation_Device *device);
 Navigation_Position_Result
 navigation_device_get_position(Navigation_Device *device);
+Navigation_Position_Result
+navigation_device_get_target_position(Navigation_Device *device);
 Navigation_Error
 navigation_device_set_target_position(Navigation_Device *device, Vec3 target);
 Navigation_Distance_Result

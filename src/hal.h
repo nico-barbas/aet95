@@ -26,6 +26,7 @@ typedef enum Aet_Fault {
   Aet_Fault_Misaligned_Address,
   Aet_Fault_Divide_By_Zero,
   Aet_Fault_Divide_Overflow,
+  Aet_Fault_Internal_Device_Error,
 } Aet_Fault;
 
 typedef enum Aet_Machine_Error {

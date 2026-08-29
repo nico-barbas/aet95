@@ -144,9 +144,12 @@ void init_game(void) {
 }
 
 void close_game(void) {
+#if defined(DEBUG)
+  destroy_debug_renderer(&_game.debug_renderer);
+#endif
+
   destroy_renderer(&_game.renderer);
   destroy_renderer_2d(&_game.renderer_2d);
-  destroy_debug_renderer(&_game.debug_renderer);
   destroy_view();
 
   _game.global_allocator.free(_game.global_allocator, _game.frame_arena.buf);
@@ -363,8 +366,66 @@ static Raw_Camera *scene_active_camera(Scene *scene) {
 // Public API to allow for tests
 //////////////////////////////////////////////
 
-// TODO(nico): write the write and read api for the device.
-// Maybe hide those function and only expose the register functions
+// NOTE(nico): Maybe hide those function and only expose the register functions
+
+Aet_Fault navigation_device_read_from_register(rawptr data, u32 reg, u32 *out) {
+  Navigation_Device *device = (Navigation_Device *)data;
+  assert(device->scene != nullptr);
+
+  Aet_Fault fault = Aet_Fault_None;
+  switch (reg) {
+  case Navigation_Register_Status: {
+    Navigation_Flags flags = navigation_device_get_flags(device);
+    *out = (u32)flags;
+  } break;
+  case Navigation_Register_Position_X: {
+    Vec3 position = or_return(
+        navigation_device_get_position(device), Aet_Fault_Internal_Device_Error
+    );
+
+    i32 x = (i32)position.x;
+    *out = (u32)x;
+  } break;
+  case Navigation_Register_Position_Y: {
+    Vec3 position = or_return(
+        navigation_device_get_position(device), Aet_Fault_Internal_Device_Error
+    );
+
+    i32 y = (i32)position.y;
+    *out = (u32)y;
+  } break;
+  case Navigation_Register_Target_X: {
+    Vec3 target = or_return(
+        navigation_device_get_target_position(device),
+        Aet_Fault_Internal_Device_Error
+    );
+
+    i32 x = (i32)target.x;
+    *out = (u32)x;
+  } break;
+  case Navigation_Register_Target_Y: {
+    Vec3 target = or_return(
+        navigation_device_get_target_position(device),
+        Aet_Fault_Internal_Device_Error
+    );
+
+    i32 y = (i32)target.y;
+    *out = (u32)y;
+  } break;
+  case Navigation_Register_Distance: {
+    f32 dist = or_return(
+        navigation_device_get_target_distance(device),
+        Aet_Fault_Internal_Device_Error
+    );
+
+    *out = (u32)dist;
+  } break;
+  }
+
+  return fault;
+}
+
+Aet_Fault navigation_device_write_to_register(rawptr data, u32 reg, u32 value);
 
 Navigation_Flags navigation_device_get_flags(Navigation_Device *device) {
   assert(device->scene != nullptr);
@@ -381,6 +442,19 @@ navigation_device_get_position(Navigation_Device *device) {
   }
 
   return ok(Navigation_Position_Result, owner->position);
+}
+
+// NOTE(nico): Time will tell if this is the correct way to handle that part or
+// if it creates more confusion than not. A program should check the
+// Navigation_Flag_Target_Set bit flag before querying the target position
+Navigation_Position_Result
+navigation_device_get_target_position(Navigation_Device *device) {
+  assert(device->scene != nullptr);
+
+  return ok(
+      Navigation_Position_Result,
+      device->target.some ? device->target.value : (Vec3){0}
+  );
 }
 
 Navigation_Error
