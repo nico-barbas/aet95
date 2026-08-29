@@ -114,9 +114,9 @@ typedef struct Entity {
 typedef enum Navigation_Register : u32 {
   Navigation_Register_Status = 0,
   Navigation_Register_Position_X = 1,
-  Navigation_Register_Position_Y = 2,
+  Navigation_Register_Position_Z = 2,
   Navigation_Register_Target_X = 3,
-  Navigation_Register_Target_Y = 4,
+  Navigation_Register_Target_Z = 4,
   Navigation_Register_Distance = 5,
 } Navigation_Register;
 
@@ -154,6 +154,31 @@ Navigation_Error
 navigation_device_set_target_position(Navigation_Device *device, Vec3 target);
 Navigation_Distance_Result
 navigation_device_get_target_distance(Navigation_Device *device);
+
+typedef u32 Motor_Flags;
+typedef enum Motor_Flag {
+  Motor_Flag_Moving = 1 << 0,
+  Motor_Flag_Blocked = 1 << 1,
+} Motor_Flag;
+
+typedef enum Motor_Error {
+  Motor_Error_None,
+  Motor_Error_Internal_Failure,
+} Motor_Error;
+
+typedef struct Motor_Device {
+  Scene *scene;
+  Entity_Handle owner;
+  Motor_Flags flags;
+  f32 max_speed;
+} Motor_Device;
+
+typedef Result(Vec3, Motor_Error) Motor_Direction_Result;
+
+Motor_Flags motor_device_get_flags(Motor_Device *device);
+Motor_Direction_Result motor_device_get_direction(Motor_Device *device);
+Motor_Error motor_device_set_direction(Motor_Device *device, Vec3 dir);
+f32 motor_device_get_max_speed(Motor_Device *device);
 
 ///////////////////////
 // Scene

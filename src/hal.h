@@ -181,7 +181,7 @@ typedef struct Aet_RAM {
 
 #define AET_DEVICE_CLASS(X)                                                    \
   X(Identity, 0)                                                               \
-  X(Navigation, 2)                                                             \
+  X(Navigation, 1)                                                             \
   X(Motor, 2)                                                                  \
   X(Sensor, 3)
 

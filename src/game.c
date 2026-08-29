@@ -366,7 +366,8 @@ static Raw_Camera *scene_active_camera(Scene *scene) {
 // Public API to allow for tests
 //////////////////////////////////////////////
 
-// NOTE(nico): Maybe hide those function and only expose the register functions
+// NOTE(nico): Maybe hide the getter/setter functions and only expose the
+// register functions
 
 Aet_Fault navigation_device_read_from_register(rawptr data, u32 reg, u32 *out) {
   Navigation_Device *device = (Navigation_Device *)data;
@@ -386,13 +387,13 @@ Aet_Fault navigation_device_read_from_register(rawptr data, u32 reg, u32 *out) {
     i32 x = (i32)position.x;
     *out = (u32)x;
   } break;
-  case Navigation_Register_Position_Y: {
+  case Navigation_Register_Position_Z: {
     Vec3 position = or_return(
         navigation_device_get_position(device), Aet_Fault_Internal_Device_Error
     );
 
-    i32 y = (i32)position.y;
-    *out = (u32)y;
+    i32 z = (i32)position.z;
+    *out = (u32)z;
   } break;
   case Navigation_Register_Target_X: {
     Vec3 target = or_return(
@@ -403,14 +404,14 @@ Aet_Fault navigation_device_read_from_register(rawptr data, u32 reg, u32 *out) {
     i32 x = (i32)target.x;
     *out = (u32)x;
   } break;
-  case Navigation_Register_Target_Y: {
+  case Navigation_Register_Target_Z: {
     Vec3 target = or_return(
         navigation_device_get_target_position(device),
         Aet_Fault_Internal_Device_Error
     );
 
-    i32 y = (i32)target.y;
-    *out = (u32)y;
+    i32 z = (i32)target.z;
+    *out = (u32)z;
   } break;
   case Navigation_Register_Distance: {
     f32 dist = or_return(
@@ -425,7 +426,52 @@ Aet_Fault navigation_device_read_from_register(rawptr data, u32 reg, u32 *out) {
   return fault;
 }
 
-Aet_Fault navigation_device_write_to_register(rawptr data, u32 reg, u32 value);
+Aet_Fault navigation_device_write_to_register(rawptr data, u32 reg, u32 value) {
+  Navigation_Device *device = (Navigation_Device *)data;
+  assert(device->scene != nullptr);
+
+  Aet_Fault fault = Aet_Fault_None;
+  switch (reg) {
+  case Navigation_Register_Distance:
+  case Navigation_Register_Status:
+  case Navigation_Register_Position_X:
+  case Navigation_Register_Position_Z: {
+    fault = Aet_Fault_Invalid_MMIO_Operation;
+  } break;
+  case Navigation_Register_Target_X: {
+    Vec3 target = or_return(
+        navigation_device_get_target_position(device),
+        Aet_Fault_Internal_Device_Error
+    );
+
+    i32 x = (i32)value;
+    Navigation_Error error = navigation_device_set_target_position(
+        device, vec3((f32)x, target.y, target.z)
+    );
+
+    if (error != Navigation_Error_None) {
+      fault = Aet_Fault_Internal_Device_Error;
+    }
+  } break;
+  case Navigation_Register_Target_Z: {
+    Vec3 target = or_return(
+        navigation_device_get_target_position(device),
+        Aet_Fault_Internal_Device_Error
+    );
+
+    i32 z = (i32)value;
+    Navigation_Error error = navigation_device_set_target_position(
+        device, vec3(target.x, target.y, (f32)z)
+    );
+
+    if (error != Navigation_Error_None) {
+      fault = Aet_Fault_Internal_Device_Error;
+    }
+  } break;
+  }
+
+  return fault;
+}
 
 Navigation_Flags navigation_device_get_flags(Navigation_Device *device) {
   assert(device->scene != nullptr);
@@ -436,6 +482,7 @@ Navigation_Position_Result
 navigation_device_get_position(Navigation_Device *device) {
   assert(device->scene != nullptr);
   Entity *owner = scene_get_entity_ptr(device->scene, device->owner);
+  assert(owner != nullptr);
 
   if (owner == nullptr) {
     return err(Navigation_Position_Result, Navigation_Error_Internal_Failure);
@@ -463,6 +510,12 @@ navigation_device_set_target_position(Navigation_Device *device, Vec3 target) {
   device->target.some = true;
   device->target.value = target;
 
+  // TODO(nico): need to check terrain, but as it is not available yet, nothing
+  // to check and error on
+
+  // FIXME(nico): need a mechanism to clear this flags
+  device->flags |= Navigation_Flag_Target_Set;
+
   return Navigation_Error_None;
 }
 
@@ -475,6 +528,7 @@ navigation_device_get_target_distance(Navigation_Device *device) {
   }
 
   Entity *owner = scene_get_entity_ptr(device->scene, device->owner);
+  assert(owner != nullptr);
 
   if (owner == nullptr) {
     return err(Navigation_Distance_Result, Navigation_Error_Internal_Failure);
@@ -482,6 +536,41 @@ navigation_device_get_target_distance(Navigation_Device *device) {
 
   f32 dist = vec3_length(vec3_sub(owner->position, device->target.value));
   return ok(Navigation_Distance_Result, dist);
+}
+
+Motor_Flags motor_device_get_flags(Motor_Device *device) {
+  assert(device->scene != nullptr);
+  return device->flags;
+}
+
+Motor_Direction_Result motor_device_get_direction(Motor_Device *device) {
+  assert(device->scene != nullptr);
+  Entity *owner = scene_get_entity_ptr(device->scene, device->owner);
+  assert(owner != nullptr);
+
+  if (owner == nullptr) {
+    return err(Motor_Direction_Result, Motor_Error_Internal_Failure);
+  }
+
+  return ok(Motor_Direction_Result, vec3_normalize(owner->velocity));
+}
+
+Motor_Error motor_device_set_direction(Motor_Device *device, Vec3 dir) {
+  assert(device->scene != nullptr);
+  Entity *owner = scene_get_entity_ptr(device->scene, device->owner);
+  assert(owner != nullptr);
+
+  if (owner == nullptr) {
+    return Motor_Error_Internal_Failure;
+  }
+
+  owner->velocity = vec3_scale(vec3_normalize(dir), device->max_speed);
+  return Motor_Error_None;
+}
+
+f32 motor_device_get_max_speed(Motor_Device *device) {
+  assert(device->scene != nullptr);
+  return device->max_speed;
 }
 
 /////////////////////////////
