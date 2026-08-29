@@ -180,8 +180,9 @@ typedef struct Aet_RAM {
 
 #define AET_DEVICE_CLASS(X)                                                    \
   X(Identity, 0)                                                               \
-  X(Motor, 1)                                                                  \
-  X(Sensor, 2)
+  X(Navigation, 2)                                                             \
+  X(Motor, 2)                                                                  \
+  X(Sensor, 3)
 
 typedef enum Aet_Device_Class {
 #define X(name, kind) Aet_Device_Class_##name = (kind),

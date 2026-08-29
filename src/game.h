@@ -10,9 +10,14 @@
 #include "render.h"
 #include "render2d.h"
 
+/*
+  NOTE(nico):
+  1 unit = 1 meter
+*/
+
 #define FRAME_ALLOCATOR_SIZE MEGABYTE * 128
-#define STARTUP_WINDOW_WIDTH 1280
-#define STARTUP_WINDOW_HEIGHT 720
+#define STARTUP_WINDOW_WIDTH 1600
+#define STARTUP_WINDOW_HEIGHT 900
 
 #define TICK_RATE 120
 #define DT (1.f / (f32)TICK_RATE)
@@ -27,10 +32,17 @@
 #define ENTITY_MASK_ALL ((Entity_Kind_Mask)(~0u))
 #define ENTITY_MASK_NONE ((Entity_Kind_Mask)(0u))
 
+typedef struct Scene Scene;
+
+/////////////////////////////
 /////////////////////////////
 // Type declarations
 /////////////////////////////
+/////////////////////////////
 
+///////////////////////
+// Entities
+///////////////////////
 typedef struct Entity_Handle {
   i32 id;
   i32 generation;
@@ -85,7 +97,55 @@ typedef struct Entity {
   };
 } Entity;
 
-typedef struct Scene {
+//////////////////////////////////////////////
+// Devices
+// Public API to allow for tests
+//////////////////////////////////////////////
+
+/*
+  NOTE(nico):
+  All the device will need a stable pointer to the scene they
+  belong to because of the vtable the machine relies on. Makes sense and that
+  pointer should ALWAYS be valid
+
+  ALWAYS assert in all the begining of all the deviced procedures
+*/
+
+typedef u32 Navigation_Flags;
+typedef enum Navigation_Flag {
+  Navigation_Flag_Valid = 1 << 0,
+  Navigation_Flag_Target_Set = 1 << 1,
+  Navigation_Flag_Invalid_Target = 1 << 2,
+} Navigation_Flag;
+
+typedef enum Navigation_Error {
+  Navigation_Error_None,
+  Navigation_Error_Internal_Failure,
+  Navgiation_Error_Invalid_Target,
+} Navigation_Error;
+
+typedef struct Navigation_Device {
+  Scene *scene;
+  Entity_Handle owner;
+  Navigation_Flags flags;
+  Option(Vec3) target;
+} Navigation_Device;
+
+typedef Result(Vec3, Navigation_Error) Navigation_Position_Result;
+typedef Result(f32, Navigation_Error) Navigation_Distance_Result;
+
+Navigation_Flags navigation_device_get_flags(Navigation_Device *device);
+Navigation_Position_Result
+navigation_device_get_position(Navigation_Device *device);
+Navigation_Error
+navigation_device_set_target_position(Navigation_Device *device, Vec3 target);
+Navigation_Distance_Result
+navigation_device_get_target_distance(Navigation_Device *device);
+
+///////////////////////
+// Scene
+///////////////////////
+struct Scene {
   usize entity_count;
   Entity entities[SCENE_CAP];
   Entity_Slot entity_slots[SCENE_CAP];
@@ -97,7 +157,7 @@ typedef struct Scene {
   Raw_Camera_State active_camera_state;
 
   // Cached state
-} Scene;
+};
 
 typedef struct Game_State {
   App app;
@@ -119,7 +179,9 @@ typedef struct Game_State {
 extern Game_State _game;
 
 /////////////////////////////
+/////////////////////////////
 // Main lifecycle hookss
+/////////////////////////////
 /////////////////////////////
 void init_game(void);
 void close_game(void);
@@ -127,17 +189,21 @@ void update_game(void);
 void render_game(void);
 
 ///////////////////////////////////
+///////////////////////////////////
 // Scene management procedures
 ///////////////////////////////////
+///////////////////////////////////
+
+/*
+  Note(nico): [29-08-26] This code is older and should move to the Result
+  paradigm that's used throughout the codebase now
+*/
 void init_scene(Scene *scene, Allocator allocator);
 void destroy_scene(Scene *scene);
-Entity_Handle add_entity(Scene *scene, Entity *entity);
-Entity *get_entity_ptr(Scene *scene, Entity_Handle _handle);
-Entity_Handle get_entity_handle(Scene *scene, Entity *entity);
-bool32 remove_entity(Scene *scene, Entity_Handle _handle);
-void free_all_entites(Scene *scene);
-
-bool32 entity_handle_eq(void *h1, void *h2);
-u64 entity_handle_hash(void *key, usize size);
+Entity_Handle scene_add_entity(Scene *scene, Entity *entity);
+Entity *scene_get_entity_ptr(Scene *scene, Entity_Handle _handle);
+Entity_Handle scene_get_entity_handle(Scene *scene, Entity *entity);
+bool32 scene_remove_entity(Scene *scene, Entity_Handle _handle);
+void scene_free_all_entites(Scene *scene);
 
 #endif

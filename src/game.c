@@ -158,7 +158,7 @@ void close_game(void) {
 ///////////////////////////////////
 void init_scene(Scene *scene, Allocator allocator) {
   (void)allocator;
-  free_all_entites(scene);
+  scene_free_all_entites(scene);
 
   scene->orbit_camera = orbit_camera();
 }
@@ -170,7 +170,7 @@ void destroy_scene(Scene *scene) {
 #define handle_eq(h1, h2)                                                      \
   ((h1).id == (h2).id && (h1).generation == (h2).generation)
 
-Entity_Handle add_entity(Scene *scene, Entity *entity) {
+Entity_Handle scene_add_entity(Scene *scene, Entity *entity) {
   if (scene->entity_count >= SCENE_CAP) {
     assert(false);
     return (Entity_Handle){0};
@@ -206,7 +206,7 @@ Entity_Handle add_entity(Scene *scene, Entity *entity) {
   return result;
 }
 
-Entity *get_entity_ptr(Scene *scene, Entity_Handle handle) {
+Entity *scene_get_entity_ptr(Scene *scene, Entity_Handle handle) {
   if (scene->entity_slots[handle.id].generation != handle.generation) {
     return nullptr;
   }
@@ -215,14 +215,14 @@ Entity *get_entity_ptr(Scene *scene, Entity_Handle handle) {
   return &scene->entities[backing_idx];
 }
 
-Entity_Handle get_entity_handle(Scene *scene, Entity *entity) {
+Entity_Handle scene_get_entity_handle(Scene *scene, Entity *entity) {
   return (Entity_Handle){
     .id = entity->slot_id,
     .generation = scene->entity_slots[entity->slot_id].generation,
   };
 }
 
-bool32 remove_entity(Scene *scene, Entity_Handle handle) {
+bool32 scene_remove_entity(Scene *scene, Entity_Handle handle) {
   if (scene->entity_slots[handle.id].generation != handle.generation) {
     return false;
   }
@@ -272,28 +272,28 @@ bool32 remove_entity(Scene *scene, Entity_Handle handle) {
   return true;
 }
 
-void free_all_entites(Scene *scene) {
+void scene_free_all_entites(Scene *scene) {
   for (i32 i = 0; i < SCENE_CAP; i += 1) {
     scene->entity_slots[i] = (Entity_Slot){.available = true};
   }
   scene->entity_count = 0;
 }
 
-bool32 entity_handle_eq(void *h1, void *h2) {
-  Entity_Handle *_h1 = (Entity_Handle *)h1;
-  Entity_Handle *_h2 = (Entity_Handle *)h2;
+// static bool32 entity_handle_eq(void *h1, void *h2) {
+//   Entity_Handle *_h1 = (Entity_Handle *)h1;
+//   Entity_Handle *_h2 = (Entity_Handle *)h2;
 
-  return _h1->id == _h2->id && _h1->generation == _h2->generation;
-}
+//   return _h1->id == _h2->id && _h1->generation == _h2->generation;
+// }
 
-u64 entity_handle_hash(void *key, usize size) {
-  (void)size;
-  Entity_Handle *h = (Entity_Handle *)key;
+// static u64 entity_handle_hash(void *key, usize size) {
+//   (void)size;
+//   Entity_Handle *h = (Entity_Handle *)key;
 
-  u64 hash = hash_fnv1a(&h->generation, sizeof(h->generation));
-  hash ^= hash_fnv1a(&h->id, sizeof(h->id));
-  return hash;
-}
+//   u64 hash = hash_fnv1a(&h->generation, sizeof(h->generation));
+//   hash ^= hash_fnv1a(&h->id, sizeof(h->id));
+//   return hash;
+// }
 
 #if defined(ENTITY_SCENE_GRAPH_IMPL)
 void parent_entity(
@@ -358,6 +358,58 @@ static Raw_Camera *scene_active_camera(Scene *scene) {
   return &scene->orbit_camera.base;
 }
 
+//////////////////////////////////////////////
+// Devices
+// Public API to allow for tests
+//////////////////////////////////////////////
+
+// TODO(nico): write the write and read api for the device.
+// Maybe hide those function and only expose the register functions
+
+Navigation_Flags navigation_device_get_flags(Navigation_Device *device) {
+  assert(device->scene != nullptr);
+  return device->flags;
+}
+
+Navigation_Position_Result
+navigation_device_get_position(Navigation_Device *device) {
+  assert(device->scene != nullptr);
+  Entity *owner = scene_get_entity_ptr(device->scene, device->owner);
+
+  if (owner == nullptr) {
+    return err(Navigation_Position_Result, Navigation_Error_Internal_Failure);
+  }
+
+  return ok(Navigation_Position_Result, owner->position);
+}
+
+Navigation_Error
+navigation_device_set_target_position(Navigation_Device *device, Vec3 target) {
+  assert(device->scene != nullptr);
+  device->target.some = true;
+  device->target.value = target;
+
+  return Navigation_Error_None;
+}
+
+Navigation_Distance_Result
+navigation_device_get_target_distance(Navigation_Device *device) {
+  assert(device->scene != nullptr);
+
+  if (device->target.some) {
+    return err(Navigation_Distance_Result, Navgiation_Error_Invalid_Target);
+  }
+
+  Entity *owner = scene_get_entity_ptr(device->scene, device->owner);
+
+  if (owner == nullptr) {
+    return err(Navigation_Distance_Result, Navigation_Error_Internal_Failure);
+  }
+
+  f32 dist = vec3_length(vec3_sub(owner->position, device->target.value));
+  return ok(Navigation_Distance_Result, dist);
+}
+
 /////////////////////////////
 // Main lifecycle hookss
 /////////////////////////////
@@ -378,7 +430,7 @@ static void update_entities(Scene *scene, f32 dt) {
     }
 
     if (entity->flags & Entity_Flag_Removed) {
-      remove_entity(scene, get_entity_handle(scene, entity));
+      scene_remove_entity(scene, scene_get_entity_handle(scene, entity));
       i -= 1;
     }
   }

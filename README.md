@@ -22,6 +22,12 @@ The meta-progression will be unlocking better tech options. A compiler, an optim
 
 Early game machines might have a few Kib of ram and very low clock-speed.
 
+## Fantasy
+
+### Very early game (first 15 minutes)
+
+"I start a new game with 1-2 machines with 2 devices: motor and navigation. I need to gather resources: iron, copper. As the player, I see that there is some copper at coordinate [20, 16]. I open the code editor and starts a new design. I write the begining of a program to load the coordinate as hard-coded values into the navigation device dedicated registers. Then I write the movement routine: poll two other navigation registers to get the machine's absolute coordinate, then write to the motors registers, one for the x velocity, one for the y velocity (signed, the speed of the motor is not controllable). Once arrived at a close enough distance, stop and gather."
+
 ## Physical environment
 
 3D terrain. Mars-like for now, more exo-planet kind expansion angle if useful.
@@ -150,7 +156,7 @@ Note the store operand order: `rd` is the source of the data and `rs1` is the ba
 
 ### Branches
 
-All branch offsets are signed and measured **in instructions, relative to the branch itself**. `beq rd, rs1, 0` is an infinite loop; offset `1` is the following instruction, which is the same as not branching. Note that this differs from MIPS and RISC-V, where the displacement is relative to the *following* instruction. A [label](#labels) written in this position resolves to exactly this displacement.
+All branch offsets are signed and measured **in instructions, relative to the branch itself**. `beq rd, rs1, 0` is an infinite loop; offset `1` is the following instruction, which is the same as not branching. Note that this differs from MIPS and RISC-V, where the displacement is relative to the _following_ instruction. A [label](#labels) written in this position resolves to exactly this displacement.
 
 | Op  | Mnemonic             | Format | Taken when            |
 | --- | -------------------- | ------ | --------------------- |
@@ -207,11 +213,12 @@ The device window is divided into fixed **64-byte pages**, one per device slot. 
 
 A slot number _is_ a device class, so a device's address is a property of what it is, not of how the machine was assembled. A program never has to discover where its motor lives; it only has to ask whether one is present.
 
-| Slot | Class      | Page base    | As `imm16` from `rx0` |
-| ---- | ---------- | ------------ | --------------------- |
-| 0    | `Identity` | `0xffff8000` | -32768                |
-| 1    | `Motor`    | `0xffff8040` | -32704                |
-| 2    | `Sensor`   | `0xffff8080` | -32640                |
+| Slot | Class        | Page base    | As `imm16` from `rx0` |
+| ---- | ------------ | ------------ | --------------------- |
+| 0    | `Identity`   | `0xffff8000` | -32768                |
+| 1    | `Navigation` | `0xffff8040` | -32704                |
+| 2    | `Motor`      | `0xffff8080` | -32640                |
+| 3    | `Sensor`     | `0xffff80c0` | -32576                |
 
 Slots past the last defined class are decoded but unclaimed, so most of the 32 KiB window currently faults. The region is sized for growth, not because 512 device classes are planned.
 
@@ -225,7 +232,7 @@ Only once all three hold does the device itself see the access, and it may still
 
 ## Devices
 
-A machine carries at most one device per class, fixed at creation. `Motor` and `Sensor` are reserved slots with no implementation behind them yet.
+A machine carries at most one device per class, fixed at creation. `Navigation` and `Motor` are specified below but not implemented yet; `Sensor` is a reserved slot with nothing behind it.
 
 ### Identity — slot 0
 
@@ -239,12 +246,65 @@ Bit _n_ of the presence bitset is set when the machine carries a device in slot 
 
 ```
 loadw r0, rx0, -32768   ; r0 = presence bitset, from 0xffff8000
-addi  r1, rx0, 2        ; bit 1 = Motor
+addi  r1, rx0, 4        ; bit 2 = Motor
 and   r2, r0, r1
 beq   r2, rx0, 3        ; no motor on this machine — skip the drive routine
 ```
 
 Every other register on the page raises `Invalid_Address`, and the device is read-only — any `storew` to it raises `Invalid_MMIO_Operation`.
+
+### Navigation — slot 1
+
+Where the machine is, and where it has been told to go. Position is a register read in whole cell coordinates, signed and exact — a program never has to derive it from how long it has been driving.
+
+| Reg | Address      | Access | Meaning                   |
+| --- | ------------ | ------ | ------------------------- |
+| 0   | `0xffff8040` | R      | Status bitset             |
+| 1   | `0xffff8044` | R      | Current X, in cells       |
+| 2   | `0xffff8048` | R      | Current Y, in cells       |
+| 3   | `0xffff804c` | R/W    | Target X, in cells        |
+| 4   | `0xffff8050` | R/W    | Target Y, in cells        |
+| 5   | `0xffff8054` | R      | Distance to target, cells |
+
+The target lives on the device rather than in RAM so that register 5 can exist: distance needs a square root and the ISA has none, so it is the one spatial quantity a program cannot work out for itself. Everything else is a `sub` away and is left to the program.
+
+| Bit | Name                   | Meaning                                                 |
+| --- | ---------------------- | ------------------------------------------------------- |
+| 0   | `signal_valid`         | Position registers are trustworthy. Always set for now. |
+| 1   | `target_set`           | A target has been written since boot                    |
+| 2   | `target_out_of_bounds` | Target names a cell outside the world                   |
+
+Distance reads 0 while `target_set` is clear, which is the same value it reads on arrival — that ambiguity is exactly what the bit is for. A program that polls distance without ever writing a target sits still and looks broken; the status register is how it finds out why.
+
+Registers 0, 1, 2 and 5 are read-only and raise `Invalid_MMIO_Operation` on a `storew`. Every other register on the page raises `Invalid_Address`.
+
+### Motor — slot 2
+
+Actuation and nothing else. The motor is handed a velocity per world axis and applies it; it knows nothing about position or destination.
+
+| Reg | Address      | Access | Meaning              |
+| --- | ------------ | ------ | -------------------- |
+| 0   | `0xffff8080` | R      | Status bitset        |
+| 1   | `0xffff8084` | R/W    | Velocity X, signed   |
+| 2   | `0xffff8088` | R/W    | Velocity Y, signed   |
+| 3   | `0xffff808c` | R      | Speed, hardware stat |
+
+Velocity is per axis rather than a heading and a throttle: the machine is holonomic and moves in any direction without turning to face it.
+
+Only the **sign** of a velocity register is read. Negative drives one way, positive the other, zero stops, and the magnitude is discarded — the machine always travels at the rated speed in register 3, which a program can read but not change. Nothing therefore has to be scaled: storing `target - current` straight into a velocity register is a complete drive command, and since position is counted in whole cells that difference reaches exactly zero in the destination cell, so the machine stops itself on arrival.
+
+Both registers are latched and persist across ticks until overwritten, including while blocked. Nothing clears them, so a program that wants to stop anywhere other than its target writes zeroes itself.
+
+| Bit | Name      | Meaning                                           |
+| --- | --------- | ------------------------------------------------- |
+| 0   | `moving`  | Velocity is non-zero and the world is allowing it |
+| 1   | `blocked` | Terrain refused the commanded direction           |
+
+`blocked` is the one a drive loop has to check. A machine held against impassable terrain never closes the gap to its target, so a routine that only watches distance spins forever.
+
+Registers 0 and 3 are read-only and raise `Invalid_MMIO_Operation` on a `storew`. Every other register on the page raises `Invalid_Address`.
+
+A worked example of the two devices driving a machine to a named cell is in [docs/examples/drive-to-target.asm](docs/examples/drive-to-target.asm).
 
 ## Machine configuration
 
@@ -328,10 +388,10 @@ Both spellings mark the same index. A label occupies no space of its own, it mar
 
 Use one wherever a branch, jump or call takes its offset. Nothing else accepts one:
 
-| Accepts a label                          | Displacement must fit    |
-| ---------------------------------------- | ------------------------ |
-| `beq` `bneq` `blt` `bgeq` `bltu` `bgequ` | -32768..32767            |
-| `jump` `call`                            | -8388608..8388607        |
+| Accepts a label                          | Displacement must fit |
+| ---------------------------------------- | --------------------- |
+| `beq` `bneq` `blt` `bgeq` `bltu` `bgequ` | -32768..32767         |
+| `jump` `call`                            | -8388608..8388607     |
 
 The displacement is resolved exactly as the [branch](#branches) encoding defines it, `target - pc` counted in instructions from the branch itself, and is then range-checked like any other immediate. A label too far away is an `Invalid_Immediate_Value` — the assembler does not relax the branch into a longer sequence.
 
@@ -367,7 +427,8 @@ Deliberately deferred. Recorded so the current shape isn't mistaken for the inte
 - **No remainder or modulo.** Both division forms discard it, so it has to be recovered with a multiply and a subtract.
 - **No arithmetic shift right**, so sign-preserving division by powers of two is not expressible.
 - **No halt instruction.** Falling off the end is the only clean stop. A label after the last instruction at least gives that exit a name, but it is still a jump to the end rather than a stop, and a top-level `ret` remains an accidental restart. There is also no way to distinguish "finished" from "never started" beyond inspecting `pc`.
-- **Only one real device.** `Identity` exists to exercise the bus end to end; `Motor` and `Sensor` are reserved slots with nothing behind them.
+- **Only one real device.** `Identity` exists to exercise the bus end to end. `Navigation` and `Motor` are specified but unimplemented, and the slot numbering above does not match the `AET_DEVICE_CLASS` list in `hal.h` yet. `Sensor` has neither a spec nor an implementation.
+- **No world model.** `Navigation` and `Motor` are written against cells, world bounds and impassable terrain, none of which are specified here or implemented. The heightmap under [Physical environment](#physical-environment) is the intended source of truth, but cell size, the mapping from height to traversability, and what makes a cell refuse a machine are all still open.
 - **No DMA.** Devices move data one word at a time through the CPU, which is fine for a motor and hopeless for anything with real I/O volume.
 - **No interrupts.** `Aet_CPU_Trap` has a single `None` member and nothing raises it, so devices cannot notify a program — polling is the only option.
 - **Devices are fixed at machine creation.** Nothing can be attached or removed while the machine runs.
