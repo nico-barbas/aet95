@@ -4,6 +4,8 @@
 #include "core/map.h"
 #include "core/math.h"
 #include "core/runtime.h"
+#include "core/strings.h"
+#include "core/types.h"
 #include "hal.h"
 
 #include <assert.h>
@@ -17,7 +19,8 @@ typedef enum Aet_Assembly_Token_Kind {
 
   Aet_Assembly_Token_Kind_Comma,
   Aet_Assembly_Token_Kind_Colon,
-  Aet_Assembly_Token_Kind_Number_Literal,
+  Aet_Assembly_Token_Kind_Integer_Literal,
+  Aet_Assembly_Token_Kind_Float_Literal,
 
   // Registers
   Aet_Assembly_Token_Kind_register_start_,
@@ -105,6 +108,9 @@ typedef struct Aet_Assembly_Parser {
 } Aet_Assembly_Parser;
 
 typedef Result(
+    Aet_Assembly_Token_Kind, Aet_Assembler_Error
+) Aet_Assembly_Number_Literal_Result;
+typedef Result(
     Aet_Assembly_Token, Aet_Assembler_Error
 ) Aet_Assembly_Token_Result;
 typedef Option(Aet_Assembly_Token_Kind) Aet_Assembly_Token_Option;
@@ -124,6 +130,10 @@ static bool32 char_is_letter(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
+static bool32 char_is_whitespace(char c) {
+  return c == '\r' || c == ' ' || c == '\b' || c == '\t';
+}
+
 static bool32 aet_assembler_starts_number(String_Reader *reader, char c) {
   if (char_is_number(c)) {
     return true;
@@ -131,6 +141,10 @@ static bool32 aet_assembler_starts_number(String_Reader *reader, char c) {
 
   return c == '-' && !string_reader_is_eof(reader) &&
          char_is_number(string_reader_peek(reader));
+}
+
+static bool32 aet_assembler_ends_number(char c) {
+  return char_is_whitespace(c) || c == ';' || c == ',' || c == '\n';
 }
 
 static bool32 aet_assembly_token_is_instruction(Aet_Assembly_Token token) {
@@ -155,7 +169,7 @@ static void aet_assembler_skip_whitespace(String_Reader *reader) {
     }
 
     char n = string_reader_peek(reader);
-    if (n != '\r' && n != ' ' && n != '\b' && n != '\t') {
+    if (!char_is_whitespace(n)) {
       break;
     }
 
@@ -163,33 +177,159 @@ static void aet_assembler_skip_whitespace(String_Reader *reader) {
   }
 }
 
-// NOTE(nico): called with the sign (if any) and the first digit already
-// consumed, so this only walks the remaining digits and the decimal point.
-// NOTE(nico): [17-08-26] Removed the floating point parsing as the decision on
-// if the ISA will support floating point instruction at the hardware level or
-// soft-float will be implemented on top is undefined
-static Aet_Assembler_Error aet_assembler_lex_number(String_Reader *reader) {
-  bool32 has_hex = false;
+static Aet_Assembly_Number_Literal_Result
+aet_assembler_lex_number(String_Reader *reader) {
+  char leading = reader->input.data[reader->current - 1];
+  if (leading == '-') {
+    // NOTE(nico): This is safe because the starts_number proc already validated
+    // that there is another char after. This is the first number after the '-'
+    leading = string_reader_advance(reader);
+  }
 
-  while (true) {
-    if (string_reader_is_eof(reader)) {
-      break;
-    }
+  if (string_reader_is_eof(reader)) {
+    return ok(
+        Aet_Assembly_Number_Literal_Result,
+        Aet_Assembly_Token_Kind_Integer_Literal
+    );
+  }
 
-    char n = string_reader_peek(reader);
-    if (n == 'x' || n == 'X') {
-      if (has_hex) {
-        return Aet_Assembler_Error_Malformed_Number;
-      }
-      has_hex = true;
-    } else if (!char_is_number(n) && (!has_hex || !char_is_hex(n))) {
-      break;
+  Aet_Assembly_Token_Kind result = Aet_Assembly_Token_Kind_Integer_Literal;
+  char shape = string_reader_peek(reader);
+
+  switch (shape) {
+  case 'x':
+  case 'X': {
+    if (leading != '0') {
+      return err(
+          Aet_Assembly_Number_Literal_Result,
+          Aet_Assembler_Error_Malformed_Hex_Literal
+      );
     }
 
     string_reader_advance(reader);
+
+    bool32 has_hex_part = false;
+
+    while (true) {
+      if (string_reader_is_eof(reader)) {
+        break;
+      }
+      char n = string_reader_peek(reader);
+
+      if (aet_assembler_ends_number(n)) {
+        break;
+      }
+
+      if (!char_is_hex(n)) {
+        return err(
+            Aet_Assembly_Number_Literal_Result,
+            Aet_Assembler_Error_Malformed_Hex_Literal
+        );
+      }
+
+      has_hex_part = true;
+      string_reader_advance(reader);
+    }
+
+    if (!has_hex_part) {
+      return err(
+          Aet_Assembly_Number_Literal_Result,
+          Aet_Assembler_Error_Malformed_Hex_Literal
+      );
+    }
+  } break;
+  case 'b':
+  case 'B': {
+    if (leading != '0') {
+      return err(
+          Aet_Assembly_Number_Literal_Result,
+          Aet_Assembler_Error_Malformed_Binary_Literal
+      );
+    }
+
+    string_reader_advance(reader);
+
+    bool32 has_binary_part = false;
+    while (true) {
+      if (string_reader_is_eof(reader)) {
+        break;
+      }
+
+      char n = string_reader_peek(reader);
+
+      if (aet_assembler_ends_number(n)) {
+        break;
+      }
+
+      if (!char_is_binary(n)) {
+        return err(
+            Aet_Assembly_Number_Literal_Result,
+            Aet_Assembler_Error_Malformed_Binary_Literal
+        );
+      }
+
+      has_binary_part = true;
+      string_reader_advance(reader);
+    }
+
+    if (!has_binary_part) {
+      return err(
+          Aet_Assembly_Number_Literal_Result,
+          Aet_Assembler_Error_Malformed_Binary_Literal
+      );
+    }
+  } break;
+  default: {
+    bool32 has_fract_char = false;
+    bool32 has_fract_part = false;
+
+    while (true) {
+      if (string_reader_is_eof(reader)) {
+        break;
+      }
+
+      char n = string_reader_peek(reader);
+      if (aet_assembler_ends_number(n)) {
+        break;
+      }
+
+      if (n == '.') {
+        if (has_fract_char) {
+          return err(
+              Aet_Assembly_Number_Literal_Result,
+              Aet_Assembler_Error_Malformed_Decimal_Literal
+          );
+        }
+
+        has_fract_char = true;
+        result = Aet_Assembly_Token_Kind_Float_Literal;
+        string_reader_advance(reader);
+        continue;
+      }
+
+      if (!char_is_number(n)) {
+        return err(
+            Aet_Assembly_Number_Literal_Result,
+            Aet_Assembler_Error_Malformed_Decimal_Literal
+        );
+      }
+
+      if (has_fract_char) {
+        has_fract_part = true;
+      }
+      string_reader_advance(reader);
+    }
+
+    if (has_fract_char && !has_fract_part) {
+      return err(
+          Aet_Assembly_Number_Literal_Result,
+          Aet_Assembler_Error_Malformed_Decimal_Literal
+      );
+    }
+  } break;
   }
 
-  return Aet_Assembler_Error_None;
+  return ok(Aet_Assembly_Number_Literal_Result, result);
 }
 
 static Aet_Assembler_Error
@@ -308,13 +448,8 @@ aet_assembler_next_token(String_Reader *reader) {
   } break;
   default: {
     if (aet_assembler_starts_number(reader, c)) {
-      token.kind = Aet_Assembly_Token_Kind_Number_Literal;
-      Aet_Assembler_Error number_err = aet_assembler_lex_number(reader);
-
-      if (number_err != Aet_Assembler_Error_None) {
-        err = number_err;
-        goto exit;
-      }
+      token.kind =
+          try(Aet_Assembly_Token_Result, aet_assembler_lex_number(reader));
     } else if (char_is_letter(c)) {
       Aet_Assembler_Error identifier_err =
           aet_assembler_lex_identifier(reader, true);
@@ -415,7 +550,7 @@ static Aet_Assembly_Immediate_Result aet_parse_immediate(
       try(Aet_Assembly_Immediate_Result, aet_assembler_consume_token(parser));
 
   i64 value = 0;
-  if (token.kind == Aet_Assembly_Token_Kind_Number_Literal) {
+  if (token.kind == Aet_Assembly_Token_Kind_Integer_Literal) {
     if (!string_to_i64(token.lexeme, &value)) {
       return err(
           Aet_Assembly_Immediate_Result,

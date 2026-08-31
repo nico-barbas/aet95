@@ -5,7 +5,9 @@ pub const c = aet.c;
 
 pub const AssemblerError = error{
     InternalFailure,
-    MalformedNumber,
+    MalformedDecimalLiteral,
+    MalformedHexLiteral,
+    MalformedBinaryLiteral,
     InvalidIdentifier,
     InvalidSyntax,
     InvalidImmediateValue,
@@ -17,7 +19,9 @@ pub const AssemblerError = error{
 fn assemblerError(code: c_int) AssemblerError {
     return switch (code) {
         c.Aet_Assembler_Error_Internal_Failure => error.InternalFailure,
-        c.Aet_Assembler_Error_Malformed_Number => error.MalformedNumber,
+        c.Aet_Assembler_Error_Malformed_Decimal_Literal => error.MalformedDecimalLiteral,
+        c.Aet_Assembler_Error_Malformed_Binary_Literal => error.MalformedBinaryLiteral,
+        c.Aet_Assembler_Error_Malformed_Hex_Literal => error.MalformedHexLiteral,
         c.Aet_Assembler_Error_Invalid_Identifier => error.InvalidIdentifier,
         c.Aet_Assembler_Error_Invalid_Syntax => error.InvalidSyntax,
         c.Aet_Assembler_Error_Invalid_Immediate_Value => error.InvalidImmediateValue,

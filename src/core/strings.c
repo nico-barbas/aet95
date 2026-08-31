@@ -155,12 +155,22 @@ bool32 string_to_i64(String str, i64 *out) {
     i += 1;
   }
 
-  if (str.len >= i + 2 && str.data[i] == '0' &&
-      (str.data[i + 1] == 'x' || str.data[i + 1] == 'X')) {
-    i += 2;
-    base = 16;
-    if (str.len < i + 1) {
-      return false;
+  if (str.len >= i + 2 && str.data[i] == '0') {
+    bool32 is_special_form = false;
+
+    if (str.data[i + 1] == 'x' || str.data[i + 1] == 'X') {
+      base = 16;
+      is_special_form = true;
+    } else if (str.data[i + 1] == 'b' || str.data[i + 1] == 'B') {
+      base = 2;
+      is_special_form = true;
+    }
+
+    if (is_special_form) {
+      i += 2;
+      if (str.len < i + 1) {
+        return false;
+      }
     }
   }
 
@@ -169,6 +179,12 @@ bool32 string_to_i64(String str, i64 *out) {
     i64 val = 0;
 
     switch (base) {
+    case 2: {
+      if (!char_is_binary(c)) {
+        return false;
+      }
+      val = (i64)(c - '0');
+    } break;
     case 10: {
       if (!char_is_number(c)) {
         return false;
@@ -176,15 +192,16 @@ bool32 string_to_i64(String str, i64 *out) {
       val = (i64)(c - '0');
     } break;
     case 16: {
-
       if (!char_is_hex(c)) {
         return false;
       }
 
       if (char_is_number(c)) {
         val = (i64)(c - '0');
-      } else {
+      } else if (c >= 'a' && c <= 'f') {
         val = (i64)(c - 'a') + 10;
+      } else if (c >= 'A' && c <= 'F') {
+        val = (i64)(c - 'A') + 10;
       }
     } break;
     default:
@@ -511,8 +528,11 @@ bool32 char_is_number(char c) {
   return c >= '0' && c <= '9';
 }
 
-// FIXME(nico): This should also allow ['A':'F], but this makes the parsing more
-// painful and I can't be asked for now
 bool32 char_is_hex(char c) {
-  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+         (c >= 'A' && c <= 'F');
+}
+
+bool32 char_is_binary(char c) {
+  return c == '0' || c == '1';
 }

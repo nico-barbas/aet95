@@ -8,7 +8,9 @@
 typedef enum Aet_Assembler_Error {
   Aet_Assembler_Error_None,
   Aet_Assembler_Error_Internal_Failure,
-  Aet_Assembler_Error_Malformed_Number,
+  Aet_Assembler_Error_Malformed_Decimal_Literal,
+  Aet_Assembler_Error_Malformed_Hex_Literal,
+  Aet_Assembler_Error_Malformed_Binary_Literal,
   Aet_Assembler_Error_Invalid_Identifier,
   Aet_Assembler_Error_Invalid_Syntax,
   Aet_Assembler_Error_Invalid_Immediate_Value,

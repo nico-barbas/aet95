@@ -22,6 +22,27 @@ const encodings = [_]Encoding{
     .{ .source = "ori r1, r2, 65535", .want = &.{0xffff5408} },
     .{ .source = "loadui r0, 65535", .want = &.{0xffff030c} },
 
+    // Hex and binary literals, in either prefix case. Hex digits are accepted
+    // in either case too, so all three spellings of 0xdead encode alike.
+    .{ .source = "loadui r0, 0xdead", .want = &.{0xdead030c} },
+    .{ .source = "loadui r0, 0xDEAD", .want = &.{0xdead030c} },
+    .{ .source = "loadui r0, 0XdEaD", .want = &.{0xdead030c} },
+    .{ .source = "loadui r0, 0b1101111010101101", .want = &.{0xdead030c} },
+    .{ .source = "ori r1, r2, 0b1111", .want = &.{0x000f5408} },
+    .{ .source = "ori r1, r2, 0B1111", .want = &.{0x000f5408} },
+
+    // The sign binds outside the base prefix, and a leading zero is not an
+    // octal prefix: 0123 is one hundred and twenty-three.
+    .{ .source = "addi r0, r1, -0x10", .want = &.{0xfff04300} },
+    .{ .source = "addi r0, r1, -0b10000", .want = &.{0xfff04300} },
+    .{ .source = "addi r0, r1, 0123", .want = &.{0x007b4300} },
+    .{ .source = "addi r0, r1, -0123", .want = &.{0xff854300} },
+
+    // A literal ends at the separator, the comment or the line, not only at a
+    // space.
+    .{ .source = "addi r0, r1, 0x10\nret", .want = &.{ 0x00104300, 0x0000001d } },
+    .{ .source = "addi r0, r1, 5 ; note\nret", .want = &.{ 0x00054300, 0x0000001d } },
+
     // J format, signed imm24 at both ends. N format takes no operand.
     .{ .source = "jump -1", .want = &.{0xffffff1b} },
     .{ .source = "call 8388607", .want = &.{0x7fffff1c} },
@@ -59,6 +80,15 @@ const rejections = [_]Rejection{
     // Both immediate widths, just past the field.
     .{ .source = "addi r0, r1, 32768", .want = error.InvalidImmediateValue },
     .{ .source = "loadui r0, 65536", .want = error.InvalidImmediateValue },
+
+    // A malformed literal is reported against the shape it started with, and
+    // a base prefix on its own carries no digits.
+    .{ .source = "loadui r0, 0xbeefz", .want = error.MalformedHexLiteral },
+    .{ .source = "loadui r0, 0x", .want = error.MalformedHexLiteral },
+    .{ .source = "loadui r0, 0b0102", .want = error.MalformedBinaryLiteral },
+    .{ .source = "loadui r0, 0b", .want = error.MalformedBinaryLiteral },
+    .{ .source = "loadui r0, 1.2.3", .want = error.MalformedDecimalLiteral },
+    .{ .source = "loadui r0, 13.", .want = error.MalformedDecimalLiteral },
 
     // Labels: undefined, duplicated, and used where no label is allowed.
     .{ .source = "jump nowhere", .want = error.UnknownSymbol },
