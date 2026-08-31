@@ -421,6 +421,9 @@ Aet_Fault navigation_device_read_from_register(rawptr data, u32 reg, u32 *out) {
 
     *out = (u32)dist;
   } break;
+  default:
+    fault = Aet_Fault_Invalid_Address;
+    break;
   }
 
   return fault;
@@ -468,6 +471,9 @@ Aet_Fault navigation_device_write_to_register(rawptr data, u32 reg, u32 value) {
       fault = Aet_Fault_Internal_Device_Error;
     }
   } break;
+  default:
+    fault = Aet_Fault_Invalid_Address;
+    break;
   }
 
   return fault;
@@ -536,6 +542,41 @@ navigation_device_get_target_distance(Navigation_Device *device) {
 
   f32 dist = vec3_length(vec3_sub(owner->position, device->target.value));
   return ok(Navigation_Distance_Result, dist);
+}
+
+Aet_Fault motor_device_read_from_register(rawptr data, u32 reg, u32 *out) {
+  Motor_Device *device = (Motor_Device *)data;
+  assert(device->scene != nullptr);
+
+  Aet_Fault fault = Aet_Fault_None;
+  switch (reg) {
+  case Motor_Register_Status: {
+    Motor_Flags flags = motor_device_get_flags(device);
+    *out = flags;
+  } break;
+  default:
+    fault = Aet_Fault_Invalid_Address;
+  }
+
+  return fault;
+}
+
+Aet_Fault motor_device_write_to_register(rawptr data, u32 reg, u32 value) {
+  Motor_Device *device = (Motor_Device *)data;
+  assert(device->scene != nullptr);
+
+  (void)value;
+
+  Aet_Fault fault = Aet_Fault_None;
+  switch (reg) {
+  case Motor_Register_Status: {
+    fault = Aet_Fault_Invalid_MMIO_Operation;
+  } break;
+  default:
+    fault = Aet_Fault_Invalid_Address;
+  }
+
+  return fault;
 }
 
 Motor_Flags motor_device_get_flags(Motor_Device *device) {

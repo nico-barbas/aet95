@@ -155,6 +155,13 @@ navigation_device_set_target_position(Navigation_Device *device, Vec3 target);
 Navigation_Distance_Result
 navigation_device_get_target_distance(Navigation_Device *device);
 
+typedef enum Motor_Register {
+  Motor_Register_Status,
+  Motor_Register_Direction_X,
+  Motor_Register_Direction_Y,
+  Motor_Register_Max_Speed,
+} Motor_Register;
+
 typedef u32 Motor_Flags;
 typedef enum Motor_Flag {
   Motor_Flag_Moving = 1 << 0,
@@ -175,6 +182,8 @@ typedef struct Motor_Device {
 
 typedef Result(Vec3, Motor_Error) Motor_Direction_Result;
 
+Aet_Fault motor_device_read_from_register(rawptr data, u32 reg, u32 *out);
+Aet_Fault motor_device_write_to_register(rawptr data, u32 reg, u32 value);
 Motor_Flags motor_device_get_flags(Motor_Device *device);
 Motor_Direction_Result motor_device_get_direction(Motor_Device *device);
 Motor_Error motor_device_set_direction(Motor_Device *device, Vec3 dir);
