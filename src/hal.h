@@ -115,7 +115,12 @@ typedef enum Aet_Instruction_Form {
   X(Bgequ, "bgequ", 26, RRI, Signed, 1, true)                                  \
   X(Jmp, "jump", 27, I, Signed, 1, true)                                       \
   X(Call, "call", 28, I, Signed, 1, true)                                      \
-  X(Ret, "ret", 29, None, None, 1, false)
+  X(Ret, "ret", 29, None, None, 1, false)                                      \
+  /* The float extension */                                                    \
+  X(Addf, "addf", 30, RRR, None, 1, false)                                     \
+  X(Subf, "subf", 31, RRR, None, 1, false)                                     \
+  X(Mulf, "mulf", 32, RRR, None, 1, false)                                     \
+  X(Divf, "divf", 33, RRR, None, 1, false)
 
 typedef enum Aet_CPU_Opcode : byte {
 #define X(name, text, opcode, form, ext, instr_count, label_allowed)           \

@@ -4,6 +4,7 @@
 
 #include <limits.h>
 #include <math.h>
+#include <string.h>
 
 //////////////////////////////////
 // Other math
@@ -34,6 +35,26 @@ f32 to_radians_f32(f32 degrees) {
 }
 f32 to_degrees_f32(f32 radians) {
   return radians * (180.0f / PI);
+}
+
+bool32 is_nan_f32(f32 f) {
+  u32 bits;
+  memcpy(&bits, &f, sizeof(bits));
+
+  u32 exp = (bits >> 23) & 0xff;
+  u32 frac = bits & 0x7fffff;
+
+  return exp == 0xff && frac != 0;
+}
+
+bool32 is_inf_f32(f32 f) {
+  u32 bits;
+  memcpy(&bits, &f, sizeof(bits));
+
+  u32 exp = (bits >> 23) & 0xff;
+  u32 frac = bits & 0x7fffff;
+
+  return exp == 0xff && frac == 0;
 }
 
 f32 clamp_f32(f32 v, f32 min, f32 max) {

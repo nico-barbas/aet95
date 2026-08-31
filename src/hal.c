@@ -15,6 +15,18 @@ typedef struct Aet_Device_Poke_Info {
 
 typedef Result(Aet_Device_Poke_Info, Aet_Fault) Aet_Device_Poke_Info_Result;
 
+static f32 aet_u32_to_f32(u32 bits) {
+  f32 out;
+  memcpy(&out, &bits, sizeof(out));
+  return out;
+}
+
+static u32 aet_f32_to_u32(f32 value) {
+  u32 out;
+  memcpy(&out, &value, sizeof(out));
+  return out;
+}
+
 Aet_Machine_Error aet_machine_init(
     Aet_Machine *machine, Aet_Machine_Create_Info *info, Allocator allocator
 ) {
@@ -512,6 +524,32 @@ aet_cpu_execute_program(Aet_CPU *cpu, Aet_Memory_Bus *bus, usize budget) {
         goto exit;
       }
       next_pc = return_addr;
+    } break;
+
+    // NOTE(nico): All floats extensions:
+    case Aet_CPU_Opcode_Addf: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      f32 v1 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
+      f32 v2 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
+      aet_cpu_write_register(cpu, rd, aet_f32_to_u32(v1 + v2));
+    } break;
+    case Aet_CPU_Opcode_Subf: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      f32 v1 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
+      f32 v2 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
+      aet_cpu_write_register(cpu, rd, aet_f32_to_u32(v1 - v2));
+    } break;
+    case Aet_CPU_Opcode_Mulf: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      f32 v1 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
+      f32 v2 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
+      aet_cpu_write_register(cpu, rd, aet_f32_to_u32(v1 * v2));
+    } break;
+    case Aet_CPU_Opcode_Divf: {
+      Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
+      f32 v1 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
+      f32 v2 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
+      aet_cpu_write_register(cpu, rd, aet_f32_to_u32(v1 / v2));
     } break;
     case Aet_CPU_Opcode_MAX:
     default:

@@ -15,6 +15,8 @@ u64 hash_fnv1a(const void *data, usize size);
 f32 to_radians_f32(f32 degrees);
 f32 to_degrees_f32(f32 radians);
 
+bool32 is_nan_f32(f32 f);
+bool32 is_inf_f32(f32 f);
 f32 clamp_f32(f32 v, f32 min, f32 max);
 f32 min_f32(f32 a, f32 b);
 f32 max_f32(f32 a, f32 b);
