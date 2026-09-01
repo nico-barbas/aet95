@@ -47,6 +47,7 @@ bool32 string_equal(String s1, String s2);
 bool32 string_to_u16(String str, u16 *out);
 bool32 string_to_u32(String str, u32 *out);
 bool32 string_to_i64(String str, i64 *out);
+bool32 string_to_f32(String str, f32 *out);
 
 String_Builder make_builder_from_buf(char *buf, usize cap);
 void builder_reset(String_Builder *b);

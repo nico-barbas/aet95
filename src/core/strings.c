@@ -227,6 +227,174 @@ bool32 string_to_i64(String str, i64 *out) {
   return true;
 }
 
+// NOTE(nico): not using safe math
+bool32 string_to_f32(String str, f32 *out) {
+  if (str.len == 0) {
+    return false;
+  }
+
+  f32 result = 0.f;
+
+  u64 sign = 0;
+  usize i = 0;
+  if (str.data[0] == '-') {
+    if (str.len == 1) {
+      return false;
+    }
+    sign = 1;
+    i += 1;
+  }
+
+  u64 integer_part = 0;
+  while (i < str.len) {
+    char c = str.data[i++];
+    if (c == '.') {
+      break;
+    }
+
+    if (!char_is_number(c)) {
+      return false;
+    }
+
+    Safe_Math_U64_Result mul_result = safe_mul_u64(integer_part, 10);
+    if (!mul_result.ok) {
+      return false;
+    }
+
+    integer_part = mul_result.value;
+
+    Safe_Math_U64_Result add_result =
+        safe_add_u64(integer_part, (u64)(c - '0'));
+    if (!add_result.ok) {
+      return false;
+    }
+
+    integer_part = add_result.value;
+  }
+
+  u64 fractional_part = 0;
+  u64 fractional_den = 1;
+  while (i < str.len) {
+    char c = str.data[i++];
+
+    if (!char_is_number(c)) {
+      return false;
+    }
+
+    Safe_Math_U64_Result mul_result = safe_mul_u64(fractional_part, 10);
+    if (!mul_result.ok) {
+      return false;
+    }
+
+    fractional_part = mul_result.value;
+
+    Safe_Math_U64_Result add_result =
+        safe_add_u64(fractional_part, (u64)(c - '0'));
+    if (!add_result.ok) {
+      return false;
+    }
+
+    fractional_part = add_result.value;
+
+    Safe_Math_U64_Result den_mul_result = safe_mul_u64(fractional_den, 10);
+    if (!den_mul_result.ok) {
+      return false;
+    }
+    fractional_den = den_mul_result.value;
+  }
+
+  u64 num = or_return(
+      safe_add_u64(
+          or_return(safe_mul_u64(integer_part, fractional_den), false),
+          fractional_part
+      ),
+      false
+  );
+  u64 den = fractional_den;
+  if (num == 0) {
+    u32 v = (u32)sign << 31;
+    memcpy(&result, &v, sizeof(result));
+
+    *out = result;
+    return true;
+  }
+
+  i64 e = 0;
+  if (num >= den) {
+    // den <= num / 2 is the same test as num >= den * 2, without the shift
+    // running off the top of the u64 and wrapping den to zero.
+    while (den <= (num >> 1)) {
+      den <<= 1;
+      e += 1;
+    }
+  } else {
+    while (num < den) {
+      // Shifting again would drop the high bit and wrap num to zero, and the
+      // loop would never reach den. The ratio needs more headroom than a u64
+      // carries, so the value is out of range for this conversion.
+      if (num > (((u64)-1) >> 1)) {
+        return false;
+      }
+
+      num <<= 1;
+      e -= 1;
+    }
+  }
+  num -= den;
+
+  u32 mantissa = 0;
+  for (i = 0; i < 23; i += 1) {
+    num <<= 1;
+    mantissa <<= 1;
+
+    if (num >= den) {
+      num -= den;
+      mantissa |= 1;
+    }
+  }
+
+  num <<= 1;
+  bool32 guard = 0;
+  if (num >= den) {
+    num -= den;
+    guard = true;
+  }
+
+  bool32 sticky = (num != 0);
+
+  if (guard && (sticky || (mantissa & 1))) {
+    mantissa += 1;
+    if (mantissa == 0x800000) {
+      mantissa = 0;
+      e += 1;
+    }
+  }
+
+  i64 biased = e + 127;
+  if (biased >= 255) {
+    u32 v = ((u32)sign << 31) | 0x7F800000;
+    memcpy(&result, &v, sizeof(result));
+
+    *out = result;
+    return true;
+  }
+
+  // FIXME(nico):
+  if (biased <= 0) {
+    u32 v = (u32)sign << 31;
+    memcpy(&result, &v, sizeof(result));
+
+    *out = result;
+    return true;
+  }
+
+  u32 v = ((u32)sign << 31) | ((u32)biased << 23) | mantissa;
+  memcpy(&result, &v, sizeof(result));
+
+  *out = result;
+  return true;
+}
+
 ////////////////////////////////////////
 // String builder
 ////////////////////////////////////////

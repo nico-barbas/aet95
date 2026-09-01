@@ -15,18 +15,6 @@ typedef struct Aet_Device_Poke_Info {
 
 typedef Result(Aet_Device_Poke_Info, Aet_Fault) Aet_Device_Poke_Info_Result;
 
-static f32 aet_u32_to_f32(u32 bits) {
-  f32 out;
-  memcpy(&out, &bits, sizeof(out));
-  return out;
-}
-
-static u32 aet_f32_to_u32(f32 value) {
-  u32 out;
-  memcpy(&out, &value, sizeof(out));
-  return out;
-}
-
 Aet_Machine_Error aet_machine_init(
     Aet_Machine *machine, Aet_Machine_Create_Info *info, Allocator allocator
 ) {
@@ -205,6 +193,16 @@ static void aet_cpu_write_register(Aet_CPU *cpu, Aet_Register reg, u32 value) {
   if (reg != Aet_Register_Rx0) {
     cpu->registers[reg] = value;
   }
+}
+
+static Aet_Fault
+aet_cpu_write_register_f32(Aet_CPU *cpu, Aet_Register reg, f32 value) {
+  if (aet_is_nan_f32(value)) {
+    return Aet_Fault_Float_NaN;
+  }
+
+  aet_cpu_write_register(cpu, reg, aet_f32_to_u32(value));
+  return Aet_Fault_None;
 }
 
 static bool32 aet_cpu_compare_registers(
@@ -526,30 +524,87 @@ aet_cpu_execute_program(Aet_CPU *cpu, Aet_Memory_Bus *bus, usize budget) {
       next_pc = return_addr;
     } break;
 
-    // NOTE(nico): All floats extensions:
+    // NOTE(nico): All floats instructions:
+    // IEEE-754 implementation
     case Aet_CPU_Opcode_Addf: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
-      f32 v1 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
-      f32 v2 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
-      aet_cpu_write_register(cpu, rd, aet_f32_to_u32(v1 + v2));
+      f32 left = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
+      f32 right = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
+
+      if (aet_is_nan_f32(left) || aet_is_nan_f32(right)) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_Fault_Float_NaN;
+        goto exit;
+      }
+
+      Aet_Fault f32_fault = aet_cpu_write_register_f32(cpu, rd, left + right);
+      if (f32_fault != Aet_Fault_None) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = f32_fault;
+        goto exit;
+      }
     } break;
     case Aet_CPU_Opcode_Subf: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
-      f32 v1 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
-      f32 v2 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
-      aet_cpu_write_register(cpu, rd, aet_f32_to_u32(v1 - v2));
+      f32 left = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
+      f32 right = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
+
+      if (aet_is_nan_f32(left) || aet_is_nan_f32(right)) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_Fault_Float_NaN;
+        goto exit;
+      }
+
+      Aet_Fault f32_fault = aet_cpu_write_register_f32(cpu, rd, left - right);
+      if (f32_fault != Aet_Fault_None) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = f32_fault;
+        goto exit;
+      }
     } break;
     case Aet_CPU_Opcode_Mulf: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
-      f32 v1 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
-      f32 v2 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
-      aet_cpu_write_register(cpu, rd, aet_f32_to_u32(v1 * v2));
+      f32 left = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
+      f32 right = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
+
+      if (aet_is_nan_f32(left) || aet_is_nan_f32(right)) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_Fault_Float_NaN;
+        goto exit;
+      }
+
+      Aet_Fault f32_fault = aet_cpu_write_register_f32(cpu, rd, left * right);
+      if (f32_fault != Aet_Fault_None) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = f32_fault;
+        goto exit;
+      }
     } break;
     case Aet_CPU_Opcode_Divf: {
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);
-      f32 v1 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
-      f32 v2 = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
-      aet_cpu_write_register(cpu, rd, aet_f32_to_u32(v1 / v2));
+
+      f32 dividend = aet_u32_to_f32(aet_cpu_read_register(cpu, rs1));
+      f32 divisor = aet_u32_to_f32(aet_cpu_read_register(cpu, rs2));
+
+      if (aet_is_nan_f32(dividend) || aet_is_nan_f32(divisor)) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_Fault_Float_NaN;
+        goto exit;
+      }
+
+      if (divisor == 0) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = Aet_Fault_Divide_By_Zero;
+        goto exit;
+      }
+
+      Aet_Fault f32_fault =
+          aet_cpu_write_register_f32(cpu, rd, dividend / divisor);
+      if (f32_fault != Aet_Fault_None) {
+        err = Aet_CPU_Error_Fault;
+        cpu->fault = f32_fault;
+        goto exit;
+      }
     } break;
     case Aet_CPU_Opcode_MAX:
     default:
@@ -671,3 +726,35 @@ Aet_Fault aet_identity_device_write_u32(rawptr data, u32 reg, u32 value) {
   (void)value;
   return Aet_Fault_Invalid_MMIO_Operation;
 }
+
+f32 aet_u32_to_f32(u32 bits) {
+  f32 out;
+  memcpy(&out, &bits, sizeof(out));
+  return out;
+}
+
+u32 aet_f32_to_u32(f32 value) {
+  u32 out;
+  memcpy(&out, &value, sizeof(out));
+  return out;
+}
+
+bool32 aet_is_nan_f32(f32 f) {
+  u32 bits;
+  memcpy(&bits, &f, sizeof(bits));
+
+  u32 exp = (bits >> 23) & 0xff;
+  u32 frac = bits & 0x7fffff;
+
+  return exp == 0xff && frac != 0;
+}
+
+// static bool32 aet_is_inf_f32(f32 f) {
+//   u32 bits;
+//   memcpy(&bits, &f, sizeof(bits));
+
+//   u32 exp = (bits >> 23) & 0xff;
+//   u32 frac = bits & 0x7fffff;
+
+//   return exp == 0xff && frac == 0;
+// }

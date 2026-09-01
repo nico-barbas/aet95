@@ -11,6 +11,22 @@
 #include <assert.h>
 #include <string.h>
 
+/*
+  TODO(nico):
+  - [Performance] 1.8x for every assemble by lexing only once and relying on a
+  token buffer
+*/
+
+#define AET_KEYWORD_MAX_LEN 6
+#define AET_FIRST_PSEUDO_ROW ((usize)Aet_CPU_Opcode_MAX)
+
+/*
+  NOTE(nico):
+  single source of truth for all the pseudo-instructions.
+  internal value name | mnemonic | form | instruction count | label allowed
+*/
+#define AET_PSEUDO_INSTRUCTIONS(X) X(Lf, "loadf", RI, 2, false)
+
 typedef enum Aet_Assembly_Token_Kind {
   Aet_Assembly_Token_Kind_EOF,
   Aet_Assembly_Token_Kind_Newline,
@@ -48,13 +64,32 @@ typedef enum Aet_Assembly_Token_Kind {
   AET_INSTRUCTIONS(X)
 #undef X
       Aet_Assembly_Token_Kind_instruction_end_,
+
+  Aet_Assembly_Token_Kind_pseudo_start_,
+#define X(name, text, form, instr_count, label_allowed)                        \
+  Aet_Assembly_Token_Kind_##name,
+  AET_PSEUDO_INSTRUCTIONS(X)
+#undef X
+      Aet_Assembly_Token_Kind_pseudo_end_
 } Aet_Assembly_Token_Kind;
+
+typedef enum Aet_Assembly_Instruction_Variant {
+  Aet_Assembly_Instruction_Variant_Invalid,
+  Aet_Assembly_Instruction_Variant_Direct,
+  Aet_Assembly_Instruction_Variant_Pseudo,
+} Aet_Assembly_Instruction_Variant;
+
+#define aet_token_to_instruction_info_index(token)                             \
+  ((usize)((token).kind) - Aet_Assembly_Token_Kind_instruction_start_ - 1)
+#define aet_token_to_pseudo_info_index(token)                                  \
+  ((usize)((token).kind) - Aet_Assembly_Token_Kind_pseudo_start_ - 1)
 
 // NOTE(nico): the assembler's view of AET_INSTRUCTIONS. Indexed by opcode, so
 // the numbering in hal.h has to stay dense; the static_assert there enforces
 // it. sizeof(text) - 1 is the literal's length at compile time, so no strlen
 // happens per keyword comparison.
 typedef struct Aet_Assembly_Instruction_Info {
+  Aet_Assembly_Instruction_Variant variant;
   const char *text;
   usize len;
   Aet_Assembly_Token_Kind kind;
@@ -67,18 +102,58 @@ typedef struct Aet_Assembly_Instruction_Info {
 
 static const Aet_Assembly_Instruction_Info
     aet_instruction_lookup[Aet_CPU_Opcode_MAX] = {
-#define X(name, text, opcode, form, ext, instr_count, label_allowed)           \
-  [opcode] = {                                                                 \
-    text,                                                                      \
-    sizeof(text) - 1,                                                          \
-    Aet_Assembly_Token_Kind_##name,                                            \
-    Aet_CPU_Opcode_##name,                                                     \
-    Aet_Instruction_Form_##form,                                               \
-    Aet_Bit_Extension_##ext,                                                   \
-    instr_count,                                                               \
-    label_allowed,                                                             \
+#define X(name, mnemonic, _opcode, _form, ext, instr_count, _label_allowed)    \
+  [(_opcode)] = {                                                              \
+    .variant = Aet_Assembly_Instruction_Variant_Direct,                        \
+    .text = (mnemonic),                                                        \
+    .len = sizeof((mnemonic)) - 1,                                             \
+    .kind = Aet_Assembly_Token_Kind_##name,                                    \
+    .opcode = Aet_CPU_Opcode_##name,                                           \
+    .form = Aet_Instruction_Form_##_form,                                      \
+    .extension = Aet_Bit_Extension_##ext,                                      \
+    .instruction_count = (instr_count),                                        \
+    .label_allowed = (_label_allowed),                                         \
   },
       AET_INSTRUCTIONS(X)
+#undef X
+};
+
+static const Aet_Assembly_Instruction_Info aet_pseudo_lookup
+    [Aet_Assembly_Token_Kind_pseudo_end_ -
+     Aet_Assembly_Token_Kind_pseudo_start_] = {
+#define X(name, mnemonic, _form, instr_count, _label_allowed)                  \
+  [(Aet_Assembly_Token_Kind_##name) - Aet_Assembly_Token_Kind_pseudo_start_ -  \
+      1] = {                                                                   \
+    .variant = Aet_Assembly_Instruction_Variant_Pseudo,                        \
+    .text = (mnemonic),                                                        \
+    .len = sizeof((mnemonic)) - 1,                                             \
+    .kind = Aet_Assembly_Token_Kind_##name,                                    \
+    .form = Aet_Instruction_Form_##_form,                                      \
+    .instruction_count = (instr_count),                                        \
+    .label_allowed = (_label_allowed),                                         \
+  },
+      AET_PSEUDO_INSTRUCTIONS(X)
+#undef X
+};
+
+typedef union Aet_Assembly_Keyword {
+  char text[8];
+  u64 packed;
+} Aet_Assembly_Keyword;
+
+static_assert(
+    sizeof(Aet_Assembly_Keyword) == 8,
+    "Assembly keyword key must be exactly one word"
+);
+
+static const Aet_Assembly_Keyword aet_assembly_keyword_keys[] = {
+#define X(name, mnemonic, opcode, form, ext, instr_count, label_allowed)       \
+  {.text = (mnemonic)},
+  AET_INSTRUCTIONS(X)
+#undef X
+#define X(name, mnemonic, form, instr_count, label_allowed)                    \
+  {.text = (mnemonic)},
+      AET_PSEUDO_INSTRUCTIONS(X)
 #undef X
 };
 
@@ -107,6 +182,11 @@ typedef struct Aet_Assembly_Parser {
   usize pc;
 } Aet_Assembly_Parser;
 
+typedef struct Aet_Assembly_Instruction_Binary {
+  u32 bin[16];
+  usize len;
+} Aet_Assembly_Instruction_Binary;
+
 typedef Result(
     Aet_Assembly_Token_Kind, Aet_Assembler_Error
 ) Aet_Assembly_Number_Literal_Result;
@@ -116,10 +196,9 @@ typedef Result(
 typedef Option(Aet_Assembly_Token_Kind) Aet_Assembly_Token_Option;
 typedef Result(u32, Aet_Assembler_Error) Aet_Assembly_Immediate_Result;
 
-typedef Option(
-    Aet_Assembly_Instruction_Info
-) Aet_Assembly_Instruction_Info_Option;
-typedef Result(u32, Aet_Assembler_Error) Aet_Assembly_Instruction_Result;
+typedef Result(
+    Aet_Assembly_Instruction_Binary, Aet_Assembler_Error
+) Aet_Assembly_Instruction_Result;
 
 typedef struct Aet_Immediate_Range {
   i64 min;
@@ -147,9 +226,85 @@ static bool32 aet_assembler_ends_number(char c) {
   return char_is_whitespace(c) || c == ';' || c == ',' || c == '\n';
 }
 
-static bool32 aet_assembly_token_is_instruction(Aet_Assembly_Token token) {
-  return token.kind > Aet_Assembly_Token_Kind_instruction_start_ &&
-         token.kind < Aet_Assembly_Token_Kind_instruction_end_;
+static inline u64 aet_assembly_pack_keyword(String str) {
+  if (str.len > AET_KEYWORD_MAX_LEN) {
+    return 0;
+  }
+
+  u64 k;
+  u32 half;
+  u16 pair;
+  const char *p = str.data;
+
+  switch (str.len) {
+  case 6:
+    memcpy(&half, p, 4);
+    memcpy(&pair, p + 4, 2);
+    k = (u64)half | ((u64)pair << 32);
+    break;
+  case 5:
+    memcpy(&half, p, 4);
+    k = (u64)half | ((u64)(byte)p[4] << 32);
+    break;
+  case 4:
+    memcpy(&half, p, 4);
+    k = (u64)half;
+    break;
+  case 3:
+    memcpy(&pair, p, 2);
+    k = (u64)pair | ((u64)(byte)p[2] << 16);
+    break;
+  case 2:
+    memcpy(&pair, p, 2);
+    k = (u64)pair;
+    break;
+  case 1:
+    k = (u64)(byte)p[0];
+    break;
+  default:
+    k = 0;
+    break;
+  }
+
+  return k;
+}
+
+static i32 aet_assembly_lookup_keyword_index(String str) {
+  u64 key = aet_assembly_pack_keyword(str);
+  if (key == 0) {
+    return -1;
+  }
+
+  for (usize i = 0; i < countof(aet_assembly_keyword_keys); i += 1) {
+    if (aet_assembly_keyword_keys[i].packed == key) {
+      return (i32)i;
+    }
+  }
+
+  return -1;
+}
+
+static Aet_Assembly_Token_Kind aet_assembly_keyword(usize index) {
+  return index < AET_FIRST_PSEUDO_ROW
+             ? (Aet_Assembly_Token_Kind)(Aet_Assembly_Token_Kind_instruction_start_ +
+                                         1 + index)
+             : (Aet_Assembly_Token_Kind)(Aet_Assembly_Token_Kind_pseudo_start_ +
+                                         1 + index - AET_FIRST_PSEUDO_ROW);
+}
+
+static Aet_Assembly_Instruction_Variant
+aet_assembly_token_is_instruction(Aet_Assembly_Token token) {
+  if ((token.kind > Aet_Assembly_Token_Kind_instruction_start_ &&
+       token.kind < Aet_Assembly_Token_Kind_instruction_end_)) {
+    return Aet_Assembly_Instruction_Variant_Direct;
+  } else if (
+      token.kind > Aet_Assembly_Token_Kind_pseudo_start_ &&
+      token.kind < Aet_Assembly_Token_Kind_pseudo_end_
+  ) {
+    return Aet_Assembly_Instruction_Variant_Pseudo;
+  }
+
+  return Aet_Assembly_Instruction_Variant_Invalid;
 }
 
 static bool32 aet_assembly_token_is_register(Aet_Assembly_Token token) {
@@ -350,19 +505,20 @@ aet_assembler_lex_identifier(String_Reader *reader, bool32 allow_numbers) {
   return Aet_Assembler_Error_None;
 }
 
-static Aet_Assembly_Instruction_Info_Option
-aet_assembler_match_keyword(String str) {
-  for (usize i = 0; i < countof(aet_instruction_lookup); i += 1) {
-    const Aet_Assembly_Instruction_Info *keyword = &aet_instruction_lookup[i];
+// static Aet_Assembly_Instruction_Info_Option
+// aet_assembler_match_instruction(String str) {
+//   for (usize i = 0; i < countof(aet_instruction_lookup); i += 1) {
+//     const Aet_Assembly_Instruction_Info *keyword =
+//     &aet_instruction_lookup[i];
 
-    if (keyword->len == str.len &&
-        memcmp(keyword->text, str.data, str.len) == 0) {
-      return some(Aet_Assembly_Instruction_Info_Option, *keyword);
-    }
-  }
+//     if (keyword->len == str.len &&
+//         memcmp(keyword->text, str.data, str.len) == 0) {
+//       return some(Aet_Assembly_Instruction_Info_Option, *keyword);
+//     }
+//   }
 
-  return none(Aet_Assembly_Instruction_Info_Option);
-}
+//   return none(Aet_Assembly_Instruction_Info_Option);
+// }
 
 static Aet_Assembly_Token_Option aet_assembler_match_register(String str) {
   if (str.len < 2 || str.len > 3 ||
@@ -459,13 +615,13 @@ aet_assembler_next_token(String_Reader *reader) {
         goto exit;
       }
 
+      // TODO(nico): needs to fetch the pseudo instructions too
       String identifier =
           string_slice(reader->input, token.start, reader->current);
-      Aet_Assembly_Instruction_Info_Option instr_opt =
-          aet_assembler_match_keyword(identifier);
 
-      if (instr_opt.some) {
-        token.kind = instr_opt.value.kind;
+      i32 keyword_index = aet_assembly_lookup_keyword_index(identifier);
+      if (keyword_index >= 0) {
+        token.kind = aet_assembly_keyword((usize)keyword_index);
       } else {
         Aet_Assembly_Token_Option reg_opt =
             aet_assembler_match_register(identifier);
@@ -623,8 +779,17 @@ aet_assemble_rrr_op(Aet_Assembly_Parser *parser, Aet_CPU_Opcode op) {
   Aet_Register rs1 = aet_assembly_token_to_register(arg2);
   Aet_Register rs2 = aet_assembly_token_to_register(arg3);
 
-  u32 instr = (u32)(op) | ((u32)rd << 8) | ((u32)rs1 << 12) | ((u32)rs2 << 16);
-  return ok(Aet_Assembly_Instruction_Result, instr);
+  return ok(
+      Aet_Assembly_Instruction_Result,
+      ((Aet_Assembly_Instruction_Binary){
+        .bin =
+            {
+              [0] = (u32)(op) | ((u32)rd << 8) | ((u32)rs1 << 12) |
+                    ((u32)rs2 << 16),
+            },
+        .len = 1,
+      })
+  );
 }
 
 static Aet_Assembly_Instruction_Result
@@ -660,8 +825,19 @@ aet_assemble_rri_op(Aet_Assembly_Parser *parser, Aet_CPU_Opcode op) {
       try(Aet_Assembly_Instruction_Result,
           aet_parse_immediate(parser, &info, 16));
 
-  u32 instr = (u32)(op) | ((u32)rd << 8) | ((u32)rs1 << 12) | (immediate << 16);
-  return ok(Aet_Assembly_Instruction_Result, instr);
+  // u32 instr = (u32)(op) | ((u32)rd << 8) | ((u32)rs1 << 12) | (immediate <<
+  // 16);
+  return ok(
+      Aet_Assembly_Instruction_Result,
+      ((Aet_Assembly_Instruction_Binary){
+        .bin =
+            {
+              [0] = (u32)(op) | ((u32)rd << 8) | ((u32)rs1 << 12) |
+                    (immediate << 16),
+            },
+        .len = 1,
+      })
+  );
 }
 
 static Aet_Assembly_Instruction_Result
@@ -685,8 +861,17 @@ aet_assemble_ri_op(Aet_Assembly_Parser *parser, Aet_CPU_Opcode op) {
       try(Aet_Assembly_Instruction_Result,
           aet_parse_immediate(parser, &info, 16));
 
-  u32 instr = (u32)(op) | ((u32)rd << 8) | (immediate << 16);
-  return ok(Aet_Assembly_Instruction_Result, instr);
+  // u32 instr = (u32)(op) | ((u32)rd << 8) | (immediate << 16);
+  return ok(
+      Aet_Assembly_Instruction_Result,
+      ((Aet_Assembly_Instruction_Binary){
+        .bin =
+            {
+              [0] = (u32)(op) | ((u32)rd << 8) | (immediate << 16),
+            },
+        .len = 1,
+      })
+  );
 }
 
 static Aet_Assembly_Instruction_Result
@@ -697,8 +882,124 @@ aet_assemble_i_op(Aet_Assembly_Parser *parser, Aet_CPU_Opcode op) {
       try(Aet_Assembly_Instruction_Result,
           aet_parse_immediate(parser, &info, 24));
 
-  u32 instr = (u32)(op) | (immediate << 8);
-  return ok(Aet_Assembly_Instruction_Result, instr);
+  return ok(
+      Aet_Assembly_Instruction_Result,
+      ((Aet_Assembly_Instruction_Binary){
+        .bin =
+            {
+              [0] = (u32)(op) | (immediate << 8),
+            },
+        .len = 1,
+      })
+  );
+}
+
+static Aet_Assembly_Instruction_Result
+aet_assemble_direct_instruction(Aet_Assembly_Parser *parser) {
+  // Aet_Assembly_Instruction_Info_Option info_opt =
+  //     aet_assembler_match_instruction(parser->current.lexeme);
+  // if (!info_opt.some) {
+  //   return err(
+  //       Aet_Assembly_Instruction_Result, Aet_Assembler_Error_Internal_Failure
+  //   );
+  // }
+  // Aet_Assembly_Instruction_Info info = info_opt.value;
+
+  usize lookup_index = aet_token_to_instruction_info_index(parser->current);
+  Aet_Assembly_Instruction_Info info = aet_instruction_lookup[lookup_index];
+  Aet_Assembly_Instruction_Result result = {0};
+
+  switch (info.form) {
+  case Aet_Instruction_Form_None:
+    result =
+        ok(Aet_Assembly_Instruction_Result,
+           ((Aet_Assembly_Instruction_Binary){
+             .bin = {[0] = (u32)info.opcode},
+             .len = 1,
+           }));
+    break;
+  case Aet_Instruction_Form_RRR:
+    result = aet_assemble_rrr_op(parser, info.opcode);
+    break;
+  case Aet_Instruction_Form_RRI:
+    result = aet_assemble_rri_op(parser, info.opcode);
+    break;
+  case Aet_Instruction_Form_RI:
+    result = aet_assemble_ri_op(parser, info.opcode);
+    break;
+  case Aet_Instruction_Form_I:
+    result = aet_assemble_i_op(parser, info.opcode);
+    break;
+  }
+
+#if defined(DEBUG)
+  if (result.ok) {
+    assert(info.instruction_count == result.value.len);
+  }
+#endif
+
+  return result;
+}
+
+static Aet_Assembly_Instruction_Result
+aet_assemble_pseudo_instruction(Aet_Assembly_Parser *parser) {
+  Aet_Assembly_Instruction_Result result = {0};
+
+  // NOTE(nico): rawdogging the parsing for now since there is only 1
+  // pseudo instruction
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch-enum"
+  switch (parser->current.kind) {
+  case Aet_Assembly_Token_Kind_Lf: {
+    Aet_Assembly_Token arg1 =
+        try(Aet_Assembly_Instruction_Result,
+            aet_assembler_consume_token(parser));
+    if (!aet_assembly_token_is_register(arg1)) {
+      return err(
+          Aet_Assembly_Instruction_Result, Aet_Assembler_Error_Invalid_Syntax
+      );
+    }
+
+    try(Aet_Assembly_Instruction_Result,
+        aet_assembler_expect_token(parser, Aet_Assembly_Token_Kind_Comma));
+
+    Aet_Register rd = aet_assembly_token_to_register(arg1);
+
+    Aet_Assembly_Token immediate_token =
+        try(Aet_Assembly_Instruction_Result,
+            aet_assembler_consume_token(parser));
+    f32 immediate = 0.f;
+    if (!string_to_f32(immediate_token.lexeme, &immediate)) {
+      return err(
+          Aet_Assembly_Instruction_Result,
+          Aet_Assembler_Error_Invalid_Immediate_Value
+      );
+    }
+
+    u32 bits = aet_f32_to_u32(immediate);
+
+    result =
+        ok(Aet_Assembly_Instruction_Result,
+           ((Aet_Assembly_Instruction_Binary){
+             .bin =
+                 {
+                   [0] = (u32)Aet_CPU_Opcode_Lui | ((u32)rd << 8) |
+                         (bits & 0xffff0000),
+                   [1] = ((u32)Aet_CPU_Opcode_Ori) | ((u32)rd << 8) |
+                         ((u32)rd << 12) | ((bits & 0xffff) << 16),
+                 },
+             .len = 2
+           }));
+  } break;
+  default:
+    result =
+        err(Aet_Assembly_Instruction_Result,
+            Aet_Assembler_Error_Invalid_Syntax);
+  }
+#pragma clang diagnostic pop
+
+  return result;
 }
 
 static Aet_Assembly_Parse_Info_Result
@@ -750,18 +1051,25 @@ aet_assembler_reserve_size_and_build_symbol_table(
 
       open_map_set(symbol_table, token.lexeme, instruction_count);
       continue;
-    } else if (!aet_assembly_token_is_instruction(token)) {
-      error = Aet_Assembler_Error_Invalid_Syntax;
-      goto exit;
     }
 
-    Aet_Assembly_Instruction_Info_Option instr_opt =
-        aet_assembler_match_keyword(token.lexeme);
-    if (!instr_opt.some) {
-      error = Aet_Assembler_Error_Internal_Failure;
+    Aet_Assembly_Instruction_Variant variant =
+        aet_assembly_token_is_instruction(token);
+
+    switch (variant) {
+    case Aet_Assembly_Instruction_Variant_Invalid:
+      error = Aet_Assembler_Error_Invalid_Syntax;
       goto exit;
+    case Aet_Assembly_Instruction_Variant_Direct: {
+      usize lookup_index = aet_token_to_instruction_info_index(token);
+      instruction_count +=
+          aet_instruction_lookup[lookup_index].instruction_count;
+    } break;
+    case Aet_Assembly_Instruction_Variant_Pseudo: {
+      usize lookup_index = aet_token_to_pseudo_info_index(token);
+      instruction_count += aet_pseudo_lookup[lookup_index].instruction_count;
+    } break;
     }
-    instruction_count += instr_opt.value.instruction_count;
 
     while (true) {
       Aet_Assembly_Token_Result next_result =
@@ -800,8 +1108,8 @@ exit:
   labels for now)
   - The second one handles the code generation
 
-  Some work is done in both passes and is a bit redundant. Maybe I will find a
-  way to fold it in the future but for now this is good enough
+  Some work is done in both passes and is a bit redundant. Maybe I will find
+  a way to fold it in the future but for now this is good enough
 */
 Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
   Aet_Assembly_Parser parser = {
@@ -855,37 +1163,20 @@ Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
       continue;
     }
 
-    if (!aet_assembly_token_is_instruction(token)) {
-      error = Aet_Assembler_Error_Invalid_Syntax;
-      break;
-    }
+    Aet_Assembly_Instruction_Variant variant =
+        aet_assembly_token_is_instruction(token);
 
-    Aet_Assembly_Instruction_Info_Option instr_info_opt =
-        aet_assembler_match_keyword(token.lexeme);
-    if (!instr_info_opt.some) {
-      error = Aet_Assembler_Error_Internal_Failure;
-      break;
-    }
-
-    Aet_Assembly_Instruction_Info instr_info = instr_info_opt.value;
     Aet_Assembly_Instruction_Result instr_result = {0};
 
-    switch (instr_info.form) {
-    case Aet_Instruction_Form_None:
-      instr_result =
-          ok(Aet_Assembly_Instruction_Result, (u32)instr_info.opcode);
+    switch (variant) {
+    case Aet_Assembly_Instruction_Variant_Direct:
+      instr_result = aet_assemble_direct_instruction(&parser);
       break;
-    case Aet_Instruction_Form_RRR:
-      instr_result = aet_assemble_rrr_op(&parser, instr_info.opcode);
+    case Aet_Assembly_Instruction_Variant_Pseudo:
+      instr_result = aet_assemble_pseudo_instruction(&parser);
       break;
-    case Aet_Instruction_Form_RRI:
-      instr_result = aet_assemble_rri_op(&parser, instr_info.opcode);
-      break;
-    case Aet_Instruction_Form_RI:
-      instr_result = aet_assemble_ri_op(&parser, instr_info.opcode);
-      break;
-    case Aet_Instruction_Form_I:
-      instr_result = aet_assemble_i_op(&parser, instr_info.opcode);
+    case Aet_Assembly_Instruction_Variant_Invalid:
+      error = Aet_Assembler_Error_Invalid_Syntax;
       break;
     }
 
@@ -894,9 +1185,12 @@ Aet_Assembler_Result aet_assemble(String source, Allocator allocator) {
       break;
     }
 
-    assert(instr_info.instruction_count == 1);
-    output.items[parser.pc] = instr_result.value;
-    parser.pc += instr_info.instruction_count;
+    Aet_Assembly_Instruction_Binary *instr = &instr_result.value;
+
+    memcpy(
+        output.items + parser.pc, instr->bin, instr->len * sizeof(instr->bin[0])
+    );
+    parser.pc += instr->len;
 
     Aet_Assembly_Token_Result end_result = aet_assembler_consume_token(&parser);
     if (!end_result.ok) {
@@ -956,7 +1250,6 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
   // it should not rely on a standard dynamic array.
   // It should be a bloc allocation with a next ptr, and then reconstruction
   // pass at the end.
-  // This solution should also be viable for the assembler
   String_Builder builder = make_builder_from_buf(buf, 4096);
   usize current = 0;
 
@@ -1030,7 +1323,11 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     case Aet_CPU_Opcode_Or:
     case Aet_CPU_Opcode_Xor:
     case Aet_CPU_Opcode_Shl:
-    case Aet_CPU_Opcode_Shr: {
+    case Aet_CPU_Opcode_Shr:
+    case Aet_CPU_Opcode_Addf:
+    case Aet_CPU_Opcode_Subf:
+    case Aet_CPU_Opcode_Mulf:
+    case Aet_CPU_Opcode_Divf: {
       Aet_Register rd = (Aet_Register)((instr >> 8) & 0x0f);
       Aet_Register rs1 = (Aet_Register)((instr >> 12) & 0x0f);
       Aet_Register rs2 = (Aet_Register)((instr >> 16) & 0x0f);

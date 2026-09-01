@@ -37,26 +37,6 @@ f32 to_degrees_f32(f32 radians) {
   return radians * (180.0f / PI);
 }
 
-bool32 is_nan_f32(f32 f) {
-  u32 bits;
-  memcpy(&bits, &f, sizeof(bits));
-
-  u32 exp = (bits >> 23) & 0xff;
-  u32 frac = bits & 0x7fffff;
-
-  return exp == 0xff && frac != 0;
-}
-
-bool32 is_inf_f32(f32 f) {
-  u32 bits;
-  memcpy(&bits, &f, sizeof(bits));
-
-  u32 exp = (bits >> 23) & 0xff;
-  u32 frac = bits & 0x7fffff;
-
-  return exp == 0xff && frac == 0;
-}
-
 f32 clamp_f32(f32 v, f32 min, f32 max) {
   const f32 t = v < min ? min : v;
   return t > max ? max : t;
@@ -171,6 +151,20 @@ Safe_Math_I64_Result safe_mul_i64(i64 a, i64 b) {
   }
 
   return ok(Safe_Math_I64_Result, a * b);
+}
+
+Safe_Math_U64_Result safe_add_u64(u64 a, u64 b) {
+  if (a > ((u64)-1) - b) {
+    return err(Safe_Math_U64_Result, Safe_Math_Error_Unsigned_Overflow);
+  }
+  return ok(Safe_Math_U64_Result, a + b);
+}
+
+Safe_Math_U64_Result safe_mul_u64(u64 a, u64 b) {
+  if (a != 0 && b > ((u64)-1) / a) {
+    return err(Safe_Math_U64_Result, Safe_Math_Error_Unsigned_Overflow);
+  }
+  return ok(Safe_Math_U64_Result, a * b);
 }
 
 //////////////////////////////////

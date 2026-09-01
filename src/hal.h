@@ -26,6 +26,7 @@ typedef enum Aet_Fault {
   Aet_Fault_Misaligned_Address,
   Aet_Fault_Divide_By_Zero,
   Aet_Fault_Divide_Overflow,
+  Aet_Fault_Float_NaN,
   Aet_Fault_Internal_Device_Error,
 } Aet_Fault;
 
@@ -80,8 +81,8 @@ typedef enum Aet_Instruction_Form {
 // immediate is an address or a plain value, and this machine has no data
 // section for a label to name.
 //
-// mnemonic | text | opcode | form | immediate extension | instruction count |
-// label allowed
+// internal value name | mnemonic | opcode | form | immediate extension |
+// instruction count | label allowed
 #define AET_INSTRUCTIONS(X)                                                    \
   X(Addi, "addi", 0, RRI, Signed, 1, false)                                    \
   X(Add, "add", 1, RRR, None, 1, false)                                        \
@@ -255,5 +256,10 @@ Aet_Fault aet_ram_write_u32(Aet_RAM *ram, u32 addr, u32 value);
 
 Aet_Fault aet_identity_device_read_u32(rawptr data, u32 reg, u32 *out);
 Aet_Fault aet_identity_device_write_u32(rawptr data, u32 reg, u32 value);
+
+// Small helpers
+f32 aet_u32_to_f32(u32 bits);
+u32 aet_f32_to_u32(f32 value);
+bool32 aet_is_nan_f32(f32 f);
 
 #endif
