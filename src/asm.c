@@ -969,6 +969,10 @@ aet_assemble_pseudo_instruction(Aet_Assembly_Parser *parser) {
     Aet_Assembly_Token immediate_token =
         try(Aet_Assembly_Instruction_Result,
             aet_assembler_consume_token(parser));
+    // FIXME(nico): Need to reject invalid tokens. The string conversion handles
+    // it but I feel like this is a bit dogy and doesn't follow the rest of the
+    // assembler conventions
+
     f32 immediate = 0.f;
     if (!string_to_f32(immediate_token.lexeme, &immediate)) {
       return err(

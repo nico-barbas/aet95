@@ -202,8 +202,9 @@ typedef u32 Aet_Device_Available_Set;
 
 typedef struct Aet_Device {
   rawptr data;
-  Aet_Fault (*read_u32_fn)(rawptr data, u32 reg, u32 *out);
-  Aet_Fault (*write_u32_fn)(rawptr data, u32 reg, u32 value);
+  u64 extra;
+  Aet_Fault (*read_u32_fn)(rawptr data, u64 extra, u32 reg, u32 *out);
+  Aet_Fault (*write_u32_fn)(rawptr data, u64 extra, u32 reg, u32 value);
 } Aet_Device;
 
 typedef struct Aet_Memory_Bus {
@@ -254,8 +255,10 @@ Aet_Fault aet_ram_write_byte(Aet_RAM *ram, u32 addr, byte value);
 Aet_Fault aet_ram_write_u16(Aet_RAM *ram, u32 addr, u16 value);
 Aet_Fault aet_ram_write_u32(Aet_RAM *ram, u32 addr, u32 value);
 
-Aet_Fault aet_identity_device_read_u32(rawptr data, u32 reg, u32 *out);
-Aet_Fault aet_identity_device_write_u32(rawptr data, u32 reg, u32 value);
+Aet_Fault
+aet_identity_device_read_u32(rawptr data, u64 extra, u32 reg, u32 *out);
+Aet_Fault
+aet_identity_device_write_u32(rawptr data, u64 extra, u32 reg, u32 value);
 
 // Small helpers
 f32 aet_u32_to_f32(u32 bits);

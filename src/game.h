@@ -32,70 +32,36 @@
 #define ENTITY_MASK_ALL ((Entity_Kind_Mask)(~0u))
 #define ENTITY_MASK_NONE ((Entity_Kind_Mask)(0u))
 
-typedef struct Scene Scene;
-
 /////////////////////////////
 /////////////////////////////
 // Type declarations
 /////////////////////////////
 /////////////////////////////
 
-///////////////////////
-// Entities
-///////////////////////
-typedef struct Entity_Handle {
-  i32 id;
-  i32 generation;
-} Entity_Handle;
+///////////////////////////////////
+// Forwarded declared types
+///////////////////////////////////
+typedef struct Scene Scene;
 
-typedef Option(Entity_Handle) Entity_Handle_Option;
+// NOTE(nico): Completely useless error values for now
+typedef enum Scene_Error {
+  Scene_Error_None,
+  Scene_Error_Failed_To_Init_Entity,
+  Scene_Error_Failed_To_Destroy_Entity,
+} Scene_Error;
 
 typedef struct Entity_Slot {
-  i32 generation;
-  i32 backing_index;
+  u32 generation;
+  u32 backing_index;
   bool8 available;
 } Entity_Slot;
 
-typedef u32 Entity_Kind_Mask;
-typedef enum Entity_Kind {
-  Entity_Kind_Invalid,
-  Entity_Kind_Machine,
-  Entity_Kind_MAX,
-} Entity_Kind;
+typedef struct Entity_Handle {
+  u32 id;
+  u32 generation;
+} Entity_Handle;
 
-typedef enum Entity_Flag {
-  Entity_Flag_Removed = 1 << 0,
-} Entity_Flag;
-typedef u32 Entity_Flags;
-
-typedef struct Machine_Entity {
-  Aet_Machine hardware;
-} Machine_Entity;
-
-typedef struct Entity {
-  Entity_Kind kind;
-  Entity_Flags flags;
-  i32 slot_id;
-
-  Model_ID model;
-
-#if defined(ENTITY_SCENE_GRAPH_IMPL)
-  Entity_Handle_Option parent;
-  Entity_Handle_Option first_child;
-  Entity_Handle_Option last_child;
-  Entity_Handle_Option next;
-#endif
-
-  Vec3 up;
-  Vec3 position;
-  Quat rotation;
-
-  Vec3 velocity;
-
-  union {
-    Machine_Entity machine;
-  };
-} Entity;
+typedef Option(Entity_Handle) Entity_Handle_Option;
 
 //////////////////////////////////////////////
 // Devices
@@ -134,7 +100,6 @@ typedef enum Navigation_Error {
 } Navigation_Error;
 
 typedef struct Navigation_Device {
-  Scene *scene;
   Entity_Handle owner;
   Navigation_Flags flags;
   Option(Vec3) target;
@@ -143,22 +108,26 @@ typedef struct Navigation_Device {
 typedef Result(Vec3, Navigation_Error) Navigation_Position_Result;
 typedef Result(f32, Navigation_Error) Navigation_Distance_Result;
 
-Aet_Fault navigation_device_read_from_register(rawptr data, u32 reg, u32 *out);
-Aet_Fault navigation_device_write_to_register(rawptr data, u32 reg, u32 value);
-Navigation_Flags navigation_device_get_flags(Navigation_Device *device);
+Aet_Fault
+navigation_device_read_from_register(rawptr data, u64 bits, u32 reg, u32 *out);
+Aet_Fault
+navigation_device_write_to_register(rawptr data, u64 bits, u32 reg, u32 value);
+Navigation_Flags
+navigation_device_get_flags(Scene *scene, Navigation_Device *device);
 Navigation_Position_Result
-navigation_device_get_position(Navigation_Device *device);
+navigation_device_get_position(Scene *scene, Navigation_Device *device);
 Navigation_Position_Result
-navigation_device_get_target_position(Navigation_Device *device);
-Navigation_Error
-navigation_device_set_target_position(Navigation_Device *device, Vec3 target);
+navigation_device_get_target_position(Scene *scene, Navigation_Device *device);
+Navigation_Error navigation_device_set_target_position(
+    Scene *scene, Navigation_Device *device, Vec3 target
+);
 Navigation_Distance_Result
-navigation_device_get_target_distance(Navigation_Device *device);
+navigation_device_get_target_distance(Scene *scene, Navigation_Device *device);
 
 typedef enum Motor_Register {
   Motor_Register_Status,
   Motor_Register_Direction_X,
-  Motor_Register_Direction_Y,
+  Motor_Register_Direction_Z,
   Motor_Register_Max_Speed,
 } Motor_Register;
 
@@ -174,7 +143,6 @@ typedef enum Motor_Error {
 } Motor_Error;
 
 typedef struct Motor_Device {
-  Scene *scene;
   Entity_Handle owner;
   Motor_Flags flags;
   f32 max_speed;
@@ -182,12 +150,64 @@ typedef struct Motor_Device {
 
 typedef Result(Vec3, Motor_Error) Motor_Direction_Result;
 
-Aet_Fault motor_device_read_from_register(rawptr data, u32 reg, u32 *out);
-Aet_Fault motor_device_write_to_register(rawptr data, u32 reg, u32 value);
-Motor_Flags motor_device_get_flags(Motor_Device *device);
-Motor_Direction_Result motor_device_get_direction(Motor_Device *device);
-Motor_Error motor_device_set_direction(Motor_Device *device, Vec3 dir);
-f32 motor_device_get_max_speed(Motor_Device *device);
+Aet_Fault
+motor_device_read_from_register(rawptr data, u64 bits, u32 reg, u32 *out);
+Aet_Fault
+motor_device_write_to_register(rawptr data, u64 bits, u32 reg, u32 value);
+Motor_Flags motor_device_get_flags(Scene *scene, Motor_Device *device);
+Motor_Direction_Result
+motor_device_get_direction(Scene *scene, Motor_Device *device);
+Motor_Error
+motor_device_set_direction(Scene *scene, Motor_Device *device, Vec3 dir);
+f32 motor_device_get_max_speed(Scene *scene, Motor_Device *device);
+
+///////////////////////
+// Entities
+///////////////////////
+
+typedef u32 Entity_Kind_Mask;
+typedef enum Entity_Kind {
+  Entity_Kind_Invalid,
+  Entity_Kind_Machine,
+  Entity_Kind_MAX,
+} Entity_Kind;
+
+typedef enum Entity_Flag {
+  Entity_Flag_Removed = 1 << 0,
+} Entity_Flag;
+typedef u32 Entity_Flags;
+
+typedef struct Machine_Entity {
+  Aet_Machine hardware;
+  // Rawdogged fields for now
+  Navigation_Device navigation;
+  Motor_Device motor;
+} Machine_Entity;
+
+typedef struct Entity {
+  Entity_Kind kind;
+  Entity_Flags flags;
+  u32 slot_id;
+
+  Model_ID model;
+
+#if defined(ENTITY_SCENE_GRAPH_IMPL)
+  Entity_Handle_Option parent;
+  Entity_Handle_Option first_child;
+  Entity_Handle_Option last_child;
+  Entity_Handle_Option next;
+#endif
+
+  Vec3 up;
+  Vec3 position;
+  Quat rotation;
+
+  Vec3 velocity;
+
+  union {
+    Machine_Entity machine;
+  };
+} Entity;
 
 ///////////////////////
 // Scene
@@ -252,5 +272,11 @@ Entity *scene_get_entity_ptr(Scene *scene, Entity_Handle _handle);
 Entity_Handle scene_get_entity_handle(Scene *scene, Entity *entity);
 bool32 scene_remove_entity(Scene *scene, Entity_Handle _handle);
 void scene_free_all_entites(Scene *scene);
+
+Scene_Error init_entity(Scene *scene, Entity *entity, Allocator allocator);
+Scene_Error destroy_entity(Scene *scene, Entity *entity);
+
+u64 entity_handle_pack(Entity_Handle handle);
+Entity_Handle entity_handle_unpack(u64 bits);
 
 #endif

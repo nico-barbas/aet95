@@ -41,7 +41,7 @@ Aet_Machine_Error aet_machine_init(
   );
   machine->available_devices |= 1 << Aet_Device_Class_Identity;
   machine->devices[Aet_Device_Class_Identity] = (Aet_Device){
-    .data = machine,
+    .extra = (u64)machine->available_devices,
     .read_u32_fn = aet_identity_device_read_u32,
     .write_u32_fn = aet_identity_device_write_u32,
   };
@@ -88,13 +88,13 @@ aet_mmio_get_reg(Aet_Memory_Bus *bus, u32 paddr) {
     return err(Aet_Device_Poke_Info_Result, Aet_Fault_Invalid_Address);
   }
 
-  if (!(bus->available_devices & (1u << slot))) {
+  if (!(bus->available_devices & (1 << slot))) {
     return err(Aet_Device_Poke_Info_Result, Aet_Fault_Invalid_Address);
   }
 
   Aet_Device_Poke_Info info = {
     .slot = slot,
-    .reg = offset & (AET_DEVICE_PAGE_SIZE - 1),
+    .reg = (offset & (AET_DEVICE_PAGE_SIZE - 1)) >> 2,
   };
   return ok(Aet_Device_Poke_Info_Result, info);
 }
@@ -126,7 +126,9 @@ static Aet_Fault aet_bus_read_u32(Aet_Memory_Bus *bus, u32 paddr, u32 *out) {
     }
 
     Aet_Device *device = &bus->devices[device_poke_result.value.slot];
-    return device->read_u32_fn(device->data, device_poke_result.value.reg, out);
+    return device->read_u32_fn(
+        device->data, device->extra, device_poke_result.value.reg, out
+    );
   }
 }
 
@@ -159,7 +161,7 @@ static Aet_Fault aet_bus_write_u32(Aet_Memory_Bus *bus, u32 paddr, u32 value) {
 
     Aet_Device *device = &bus->devices[device_poke_result.value.slot];
     return device->write_u32_fn(
-        device->data, device_poke_result.value.reg, value
+        device->data, device->extra, device_poke_result.value.reg, value
     );
   }
 }
@@ -705,23 +707,23 @@ Aet_Fault aet_ram_write_u32(Aet_RAM *ram, u32 addr, u32 value) {
   return Aet_Fault_None;
 }
 
-Aet_Fault aet_identity_device_read_u32(rawptr data, u32 reg, u32 *out) {
+Aet_Fault
+aet_identity_device_read_u32(rawptr data, u64 extra, u32 reg, u32 *out) {
+  (void)data;
+
   if (reg != 0) {
     return Aet_Fault_Invalid_Address;
   }
 
-  if (data == nullptr) {
-    return Aet_Fault_Invalid_MMIO_Operation;
-  }
-
-  Aet_Machine *machine = (Aet_Machine *)data;
-  *out = (u32)machine->available_devices;
+  *out = (u32)extra;
   return Aet_Fault_None;
 }
 
 // NOTE(nico): For now this device is read-only
-Aet_Fault aet_identity_device_write_u32(rawptr data, u32 reg, u32 value) {
+Aet_Fault
+aet_identity_device_write_u32(rawptr data, u64 extra, u32 reg, u32 value) {
   (void)data;
+  (void)extra;
   (void)reg;
   (void)value;
   return Aet_Fault_Invalid_MMIO_Operation;

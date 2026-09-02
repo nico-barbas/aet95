@@ -118,6 +118,27 @@ Division is the one place that faults instead of producing a value. Both `div` a
 
 Despite the name, `loadui` touches no memory — it is listed here rather than under Memory because it only materialises a constant. The `u` is for **upper**, not unsigned; it is the one place in the ISA where a trailing `u` does not mean an unsigned operand or result.
 
+### Floating point
+
+Single-precision IEEE-754 binary32, held in the same 16 general registers. Registers are untyped: the same 32 bits are an integer to `add` and a float to `addf`. Nothing marks a register as holding a float, and nothing checks.
+
+| Op  | Mnemonic             | Format | Effect             |
+| --- | -------------------- | ------ | ------------------ |
+| 30  | `addf rd, rs1, rs2`  | R      | `rd = rs1 + rs2`   |
+| 31  | `subf rd, rs1, rs2`  | R      | `rd = rs1 - rs2`   |
+| 32  | `mulf rd, rs1, rs2`  | R      | `rd = rs1 * rs2`   |
+| 33  | `divf rd, rs1, rs2`  | R      | `rd = rs1 / rs2`   |
+
+**NaN never survives a float instruction.** It is rejected on the way in and on the way out: if either operand is NaN, or if the result would be NaN, the instruction raises `Float_NaN` and writes nothing. So `inf - inf` and `0.0 * inf` fault at the instruction that would have produced the NaN, not at some later instruction that consumes it, and `pc` points at the culprit.
+
+A NaN can still reach a register the other way, through `loadui`/`ori`, since those move bit patterns and do not inspect them. Such a register faults the first time a float instruction reads it.
+
+**Infinity is a legal value.** Overflow is silent — `3.4e38 + 3.4e38` gives `+inf` with no fault — and infinite operands compute normally: `inf + 1.0` is `inf`, `1.0 / inf` is `0.0`. Underflow to zero is silent too. Only NaN is refused.
+
+`divf` raises `Divide_By_Zero` when the divisor is zero, matching `div` and `divu` rather than IEEE-754, which would give a signed infinity. `-0.0` counts as zero. The NaN check runs first, so `nan / 0.0` reports `Float_NaN`, not `Divide_By_Zero`.
+
+There is no float comparison, so the branches cannot test one, and no conversion between the integer and float views of a register.
+
 ### Materialising constants
 
 `ori` and `loadui` are the pair that reaches the full 32-bit space. `loadui` places a bit pattern in the upper half and clears the lower; `ori` merges a pattern into the lower half without disturbing the upper:
@@ -132,6 +153,27 @@ Both immediates are bit patterns, so the two halves compose directly and no corr
 Using `addi` for the lower half instead does **not** work in general, because `addi` sign-extends. For any constant whose bit 15 is set, the sign extension borrows from the upper half: `loadui r0, 0xdead` followed by `addi r0, r0, -16657` — the only way to spell `0xbeef` in a signed field — yields `0xdeacbeef`, one short in the upper half. Reaching such a constant with `addi` means pre-biasing the upper half by `0x8000` to cancel the borrow. `ori` exists so that you do not have to.
 
 This is also what makes the whole address space reachable. Without it, only the 64 KiB window addressable as `rx0 + sext(imm16)` — the bottom and top 32 KiB — could be named without a multi-instruction shift sequence.
+
+### Pseudo-instructions
+
+A pseudo-instruction is a mnemonic the assembler accepts but the CPU does not. It has no opcode; the assembler expands it into real instructions, and a program that has been assembled carries no trace that it was written.
+
+`loadf rd, <float>` is the first and, so far, the only one. It materialises a float constant with the `loadui`/`ori` pair above, splitting the binary32 bit pattern into its two halves:
+
+```
+loadf r0, 0.1
+```
+
+assembles to exactly what you would write by hand:
+
+```
+loadui r0, 15820        ; 0x3dcc, the upper half of 0x3dcccccd
+ori    r0, r0, 52429    ; 0xcccd, the lower half
+```
+
+It always emits both instructions, even when the lower half is zero and the `ori` is a no-op. The count is fixed so that the size the assembler reserves, and the addresses labels resolve to, do not depend on the value of the constant.
+
+The disassembler does not fold the pair back into a `loadf`. It prints the two instructions that are actually there, and that output re-assembles to the same bytes.
 
 ### Memory
 
@@ -337,8 +379,9 @@ Every instruction costs exactly one cycle. There are no multi-cycle timings yet.
 | `Invalid_Address`              | An access outside RAM, or to an absent or undefined device slot   |
 | `Invalid_MMIO_Operation`       | A sub-word access to the device window, or a rejected device poke |
 | `Misaligned_Address`           | A device access not on a 4-byte boundary                          |
-| `Divide_By_Zero`               | `div` or `divu` with a zero divisor                               |
+| `Divide_By_Zero`               | `div`, `divu` or `divf` with a zero divisor                       |
 | `Divide_Overflow`              | `div` computing `-2147483648 / -1`                                |
+| `Float_NaN`                    | A float instruction with a NaN operand, or producing a NaN        |
 
 The three memory faults are checked in that order for a device access: shape first (word-sized, then aligned), then whether anything answers at that address, then the device's own verdict. A sub-word load from an empty slot reports `Invalid_MMIO_Operation`, not `Invalid_Address` — the access was malformed before the question of what lives there arose.
 
@@ -363,10 +406,13 @@ bneq r0, rx0, body      ; back to the body
 That program leaves `r2 = 10` and stops by falling off the end. Note that it does **not** end in `ret`: `ret` only ever jumps to whatever `rx1` holds, and outside a `call` that is 0, so a top-level `ret` restarts the program from instruction 0 instead of halting. Until there is a halt instruction, running off the end is the only way to stop.
 
 - `;` starts a comment that runs to the end of the line, either on its own line or after an instruction.
-- Integer literals are decimal by default, or hexadecimal with a `0x` prefix (`0X` is accepted too). Either form takes an optional leading `-`, so `-0x10` is -16. No `+` prefix and no binary literals.
-- **Hex digits must be lowercase.** `0xbeef` assembles, `0xBEEF` is rejected. The prefix is the only part where case is free.
-- A literal with two `0x` prefixes, like `0x0x1`, is a `Malformed_Number`; a bare `0x` with no digits is an invalid immediate.
-- Mnemonics are lowercase. Register names accept an uppercase `R` (`R0` works) but the `x` in the extended registers must be lowercase (`rx0`, not `RX0`).
+- Integer literals are decimal by default, hexadecimal with a `0x` prefix, or binary with a `0b` prefix. The prefix letter takes either case (`0X`, `0B`) and so do hex digits, so `0xbeef`, `0xBEEF` and `0XbEeF` are the same number. Any form takes an optional leading `-`, so `-0x10` is -16 and `-0b10000` is the same. There is no `+` prefix.
+- A leading zero is not an octal prefix: `0123` is one hundred and twenty-three.
+- Float literals are digits, a `.`, then digits — `1.5`, `-1.5`, `0.1`. Both sides are required: `1.` and `.5` are both rejected. There is no exponent form, so `1e5` is a malformed decimal literal.
+- **A float literal is only accepted by `loadf`.** Everywhere else it is a syntax error, including `loadui r0, 1.5` and `addi r0, r1, 1.5`. `loadf` also takes an integer literal, so `loadf r0, 12` materialises `12.0`, but it does not take hex or binary — the bit-pattern spelling of a float is `loadui`/`ori`.
+- A `loadf` literal converts to the nearest binary32, breaking ties to even. A value needing more range than the conversion carries is rejected as an invalid immediate rather than saturating to infinity or flushing to zero, so `loadf r0, 340282350000000000000000000000000000000.0` does not assemble.
+- A malformed literal is reported against the shape it started with: `0x0x1` and a bare `0x` are `Malformed_Hex_Literal`, `0b012` and a bare `0b` are `Malformed_Binary_Literal`, `1.2.3` is `Malformed_Decimal_Literal`.
+- Mnemonics are lowercase; `ADD` is rejected. Register names accept an uppercase `R` (`R0` and `Rx0` work) but the `x` in the extended registers must be lowercase, so `RX0` and `rX0` are not registers.
 - Branch, jump and call take either a [label](#labels) or a raw signed instruction offset.
 
 The disassembler is the exact inverse: its output re-assembles to a byte-identical program. It does not reconstruct labels — every offset comes back as a number, since nothing in the encoded program records that a name was ever there.
@@ -422,8 +468,13 @@ Deliberately deferred. Recorded so the current shape isn't mistaken for the inte
 
 - **No branch relaxation.** A label out of reach of its branch is rejected rather than rewritten into an inverted branch over a `jump`, the way GNU assembler would. The ranges are far past anything these machines can hold for now, so the check reads more as an assertion on the assembler's own arithmetic than as a limit a program will meet. It is in place in case it ever needs to grow.
 - **No data labels**, and nothing for them to name — no `.data` section, no way to reserve or initialise RAM from source. Constants have to be materialised with `loadui`/`ori` and stored by hand.
-- **No uppercase hex digits.** `0xBEEF` is rejected; only `a`-`f` are accepted. A lexer limitation, not a deliberate choice.
 - **No immediate forms** of `sub`, `and`, `xor` or the shifts. `or` has one — `ori` — because constant materialisation needs it; the others have no such forcing reason yet.
+- **No float comparison**, so no branch can test one. A program can compute with floats but cannot make a decision from the result without reinterpreting the bits, and the sign-magnitude layout of binary32 does not order correctly under the integer comparisons.
+- **No conversion between integer and float.** The two views of a register are reachable only by reinterpreting the bits, so there is no way to turn a device's cell count into a float, or a computed float back into a count. This is the gap that most limits what the float extension is currently good for.
+- **No float square root, absolute value or negation.** Negation costs an `xor` against `0x80000000`, which has to be materialised first.
+- **Infinity is reachable but not testable.** Overflow produces it silently and no instruction distinguishes it from a finite value, so it spreads through a computation until it meets the one operation that turns it into a NaN — `inf - inf`, `inf / inf` or `inf * 0.0` — and only then does the program find out, as a `Float_NaN` fault well downstream of the overflow that caused it.
+- **Float literals have no exponent form**, so a constant like `1e-9` has to be written out in full. Values needing more range than the conversion carries are rejected outright rather than rounded to what binary32 can hold, which puts `FLT_MAX`, anything subnormal, and any literal with more than about nineteen significant digits out of reach of `loadf`.
+- **Only one pseudo-instruction.** `loadf` is the whole mechanism so far, and there is no integer equivalent, so a 32-bit integer constant still needs the `loadui`/`ori` pair written by hand.
 - **No remainder or modulo.** Both division forms discard it, so it has to be recovered with a multiply and a subtract.
 - **No arithmetic shift right**, so sign-preserving division by powers of two is not expressible.
 - **No halt instruction.** Falling off the end is the only clean stop. A label after the last instruction at least gives that exit a name, but it is still a jump to the end rather than a stop, and a top-level `ret` remains an accidental restart. There is also no way to distinguish "finished" from "never started" beyond inspecting `pc`.
