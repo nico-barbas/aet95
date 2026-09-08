@@ -18,8 +18,13 @@ typedef enum Theme_Color : byte {
   Theme_Color_Transparent,
   Theme_Color_Background,
   Theme_Color_Foreground,
-  Theme_Color_Muted,
-  Theme_Color_Accent,
+  Theme_Color_Error,
+  Theme_Color_Muted_Soft,
+  Theme_Color_Muted_Regular,
+  Theme_Color_Muted_Hard,
+  Theme_Color_Accent_Soft,
+  Theme_Color_Accent_Regular,
+  Theme_Color_Accent_Hard,
   Theme_Color_MAX,
 } Theme_Color;
 

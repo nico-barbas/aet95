@@ -137,20 +137,56 @@ test "deleting removes the characters before the gap and clamps" {
         defer doc.destroy(document);
 
         try doc.writeString(&document, "hello");
-        doc.deleteChars(&document, 2);
+        try doc.deleteCharsBack(&document, 2);
         try doc.expectText(&document, "hel");
 
         // Deleting only reaches back to the start of the document.
-        doc.deleteChars(&document, 99);
+        try doc.deleteCharsBack(&document, 99);
         try doc.expectText(&document, "");
-        doc.deleteChars(&document, 1);
+        try doc.deleteCharsBack(&document, 1);
         try doc.expectText(&document, "");
 
         // Deleting in the middle takes from before the cursor, not after.
         try doc.writeString(&document, "abcdef");
         try doc.moveGap(&document, 3);
-        doc.deleteChars(&document, 2);
+        try doc.deleteCharsBack(&document, 2);
         try doc.expectText(&document, "adef");
+    }
+}
+
+test "deleting removes the characters after the gap and clamps" {
+    for (shapes) |shape| {
+        errdefer std.debug.print(
+            "\n  failing shape: cap={d} gap={d}\n",
+            .{ shape.cap, shape.gap },
+        );
+
+        var document = try doc.make(shape.cap, shape.gap);
+        defer doc.destroy(document);
+
+        try doc.writeString(&document, "hello");
+
+        // With the gap at the end there is nothing in front of it to remove.
+        try doc.deleteCharsFront(&document, 3);
+        try doc.expectText(&document, "hello");
+
+        try doc.moveGap(&document, 0);
+        try doc.deleteCharsFront(&document, 2);
+        try doc.expectText(&document, "llo");
+        // The cursor does not move when the text in front of it is removed.
+        try std.testing.expectEqual(0, document.gap_start);
+
+        // Deleting only reaches forward to the end of the document.
+        try doc.deleteCharsFront(&document, 99);
+        try doc.expectText(&document, "");
+        try doc.deleteCharsFront(&document, 1);
+        try doc.expectText(&document, "");
+
+        // Deleting in the middle takes from after the cursor, not before.
+        try doc.writeString(&document, "abcdef");
+        try doc.moveGap(&document, 3);
+        try doc.deleteCharsFront(&document, 2);
+        try doc.expectText(&document, "abcf");
     }
 }
 
@@ -454,6 +490,8 @@ test "inserting a newline mid-document splits the line" {
     );
 }
 
+const Direction = enum { back, front };
+
 const DeleteCase = struct {
     text: []const u8,
     gap: ?usize = null,
@@ -462,6 +500,35 @@ const DeleteCase = struct {
     want_line: usize,
     want_starts: []const usize,
 };
+
+fn expectDeleteCases(dir: Direction, cases: []const DeleteCase) !void {
+    for (cases, 0..) |case, i| {
+        errdefer std.debug.print(
+            "\n  failing {s} case {d}: \"{f}\" delete {d}\n",
+            .{ @tagName(dir), i, std.zig.fmtString(case.text), case.delete },
+        );
+
+        var document = try doc.make(256, 16);
+        defer doc.destroy(document);
+
+        try doc.writeString(&document, case.text);
+        if (case.gap) |gap| try doc.moveGap(&document, gap);
+        switch (dir) {
+            .back => try doc.deleteCharsBack(&document, case.delete),
+            .front => try doc.deleteCharsFront(&document, case.delete),
+        }
+
+        try doc.expectText(&document, case.want_text);
+        try std.testing.expectEqual(case.want_line, document.current_line);
+
+        var buf: [32]usize = undefined;
+        try std.testing.expectEqualSlices(
+            usize,
+            case.want_starts,
+            doc.lineStarts(&document, &buf),
+        );
+    }
+}
 
 test "deleting keeps the line table in sync" {
     const cases = [_]DeleteCase{
@@ -523,29 +590,134 @@ test "deleting keeps the line table in sync" {
         },
     };
 
-    for (cases, 0..) |case, i| {
-        errdefer std.debug.print(
-            "\n  failing case {d}: \"{f}\" delete {d}\n",
-            .{ i, std.zig.fmtString(case.text), case.delete },
-        );
+    try expectDeleteCases(.back, &cases);
+}
 
-        var document = try doc.make(256, 16);
-        defer doc.destroy(document);
+test "deleting forward keeps the line table in sync" {
+    const cases = [_]DeleteCase{
+        // No newline in the removed range: the table only slides down.
+        .{
+            .text = "abc\ndefg",
+            .gap = 0,
+            .delete = 1,
+            .want_text = "bc\ndefg",
+            .want_line = 0,
+            .want_starts = &.{ 0, 3 },
+        },
+        // One short of the terminator: the next line must survive.
+        .{
+            .text = "abc\ndefg",
+            .gap = 0,
+            .delete = 3,
+            .want_text = "\ndefg",
+            .want_line = 0,
+            .want_starts = &.{ 0, 1 },
+        },
+        // Exactly up to and including the terminator. The boundary case: the
+        // newline is the last byte removed, so the line it opened is gone.
+        .{
+            .text = "abc\ndefg",
+            .gap = 0,
+            .delete = 4,
+            .want_text = "defg",
+            .want_line = 0,
+            .want_starts = &.{0},
+        },
+        // Deleting forward over a newline pulls the next line up into this one.
+        .{
+            .text = "abc\ndefg",
+            .gap = 3,
+            .delete = 1,
+            .want_text = "abcdefg",
+            .want_line = 0,
+            .want_starts = &.{0},
+        },
+        // The cursor's own line is never the one removed, even when the whole
+        // line in front of it goes.
+        .{
+            .text = "abc\ndefg\nhi",
+            .gap = 4,
+            .delete = 5,
+            .want_text = "abc\nhi",
+            .want_line = 1,
+            .want_starts = &.{ 0, 4 },
+        },
+        // Mid-line, crossing into the line after next.
+        .{
+            .text = "abc\ndefg\nhi",
+            .gap = 6,
+            .delete = 4,
+            .want_text = "abc\ndei",
+            .want_line = 1,
+            .want_starts = &.{ 0, 4 },
+        },
+        // Several newlines at once are one contiguous removal.
+        .{
+            .text = "a\nb\nc\nd\ne",
+            .gap = 0,
+            .delete = 6,
+            .want_text = "d\ne",
+            .want_line = 0,
+            .want_starts = &.{ 0, 2 },
+        },
+        // Empty lines: the terminator removed is the one that opened line 1.
+        .{
+            .text = "a\n\nb",
+            .gap = 1,
+            .delete = 1,
+            .want_text = "a\nb",
+            .want_line = 0,
+            .want_starts = &.{ 0, 2 },
+        },
+        // Clamped: the table must not lose its first entry.
+        .{
+            .text = "ab\ncd",
+            .gap = 0,
+            .delete = 99,
+            .want_text = "",
+            .want_line = 0,
+            .want_starts = &.{0},
+        },
+        // At the end of the document there is nothing in front to remove.
+        .{
+            .text = "abc\ndefg",
+            .delete = 99,
+            .want_text = "abc\ndefg",
+            .want_line = 1,
+            .want_starts = &.{ 0, 4 },
+        },
+        .{
+            .text = "abc\ndefg\nhi",
+            .gap = 4,
+            .delete = 0,
+            .want_text = "abc\ndefg\nhi",
+            .want_line = 1,
+            .want_starts = &.{ 0, 4, 9 },
+        },
+    };
 
-        try doc.writeString(&document, case.text);
-        if (case.gap) |gap| try doc.moveGap(&document, gap);
-        doc.deleteChars(&document, case.delete);
+    try expectDeleteCases(.front, &cases);
+}
 
-        try doc.expectText(&document, case.want_text);
-        try std.testing.expectEqual(case.want_line, document.current_line);
+test "deleting forward ignores memory past the line table" {
+    var document = try doc.make(256, 16);
+    defer doc.destroy(document);
 
-        var buf: [32]usize = undefined;
-        try std.testing.expectEqualSlices(
-            usize,
-            case.want_starts,
-            doc.lineStarts(&document, &buf),
-        );
-    }
+    try doc.writeString(&document, "abc\ndefg");
+    try doc.moveGap(&document, 0);
+    // Zero is below every real line start, so a scan that runs one slot too far
+    // reads an entry that looks like it falls inside the deleted range.
+    doc.poisonPastLineTable(&document);
+
+    try doc.deleteCharsFront(&document, 99);
+
+    try doc.expectText(&document, "");
+    var buf: [32]usize = undefined;
+    try std.testing.expectEqualSlices(
+        usize,
+        &[_]usize{0},
+        doc.lineStarts(&document, &buf),
+    );
 }
 
 const Model = struct {
@@ -561,10 +733,15 @@ const Model = struct {
         self.cursor += 1;
     }
 
-    fn delete(self: *Model, n: usize) void {
+    fn deleteBack(self: *Model, n: usize) void {
         const count = @min(n, self.cursor);
         self.text.replaceRangeAssumeCapacity(self.cursor - count, count, &.{});
         self.cursor -= count;
+    }
+
+    fn deleteFront(self: *Model, n: usize) void {
+        const count = @min(n, self.text.items.len - self.cursor);
+        self.text.replaceRangeAssumeCapacity(self.cursor, count, &.{});
     }
 };
 
@@ -634,12 +811,19 @@ test "randomised edits agree with a naive model" {
                         try doc.writeString(&document, buf[0..n]);
                         for (buf[0..n]) |byte| try model.insert(allocator, byte);
                     },
-                    60...77 => {
+                    60...68 => {
                         const n = random.uintLessThan(usize, 6);
-                        op = "delete_chars";
+                        op = "delete_chars_back";
                         arg = n;
-                        doc.deleteChars(&document, n);
-                        model.delete(n);
+                        try doc.deleteCharsBack(&document, n);
+                        model.deleteBack(n);
+                    },
+                    69...77 => {
+                        const n = random.uintLessThan(usize, 6);
+                        op = "delete_chars_front";
+                        arg = n;
+                        try doc.deleteCharsFront(&document, n);
+                        model.deleteFront(n);
                     },
                     78...96 => {
                         // Deliberately overshoots the end sometimes.

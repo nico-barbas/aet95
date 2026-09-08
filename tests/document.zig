@@ -6,6 +6,7 @@ pub const c = aet.c;
 pub const DocumentError = error{
     FailedToAllocate,
     InvalidPosition,
+    FailedToWrite,
     UnrecognisedErrorCode,
 };
 
@@ -13,6 +14,7 @@ fn documentError(code: c_int) DocumentError {
     return switch (code) {
         c.Document_Error_Failed_To_Allocate => error.FailedToAllocate,
         c.Document_Error_Invalid_Position => error.InvalidPosition,
+        c.Document_Error_Failed_To_Write => error.FailedToWrite,
         else => error.UnrecognisedErrorCode,
     };
 }
@@ -43,8 +45,14 @@ pub fn writeString(document: *c.Document, str: []const u8) DocumentError!void {
     try check(c.document_write_string(document, string));
 }
 
-pub fn deleteChars(document: *c.Document, n: usize) void {
-    _ = c.document_delete_chars(document, n);
+/// A delete that reports failure has left the line table and the buffer out of
+/// step with each other, so the error is surfaced rather than discarded.
+pub fn deleteCharsBack(document: *c.Document, n: usize) DocumentError!void {
+    try check(c.document_delete_chars_back(document, n));
+}
+
+pub fn deleteCharsFront(document: *c.Document, n: usize) DocumentError!void {
+    try check(c.document_delete_chars_front(document, n));
 }
 
 pub fn moveGap(document: *c.Document, pos: usize) DocumentError!void {

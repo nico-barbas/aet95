@@ -19,4 +19,5 @@
 #include "main.c"
 #include "render.c"
 #include "render2d.c"
+#include "tools.c"
 #include "view.c"

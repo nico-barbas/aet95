@@ -243,6 +243,7 @@ u64 app_get_current_time_ns();
 u64 app_get_last_time_ns();
 f32 app_get_elapsed_time();
 Vec2 app_get_window_size();
+String app_get_clipboard_content();
 
 Vec2 app_mouse_position();
 Vec2 app_mouse_delta();

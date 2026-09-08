@@ -123,7 +123,7 @@ void init_game(void) {
   push_view_inbound_event((View_Inbound_Event){
     .kind = View_Inbound_Event_Open_Window,
     .open_window = (Window_Open_Info){
-      .title = from_c_str("code::builder"),
+      .title = from_c_str("aet::workbench"),
       .kind = Window_Kind_Code_Editor,
       .position = vec2(100, 100),
       .width = 400,
@@ -131,16 +131,16 @@ void init_game(void) {
     },
   });
 
-  push_view_inbound_event((View_Inbound_Event){
-    .kind = View_Inbound_Event_Open_Window,
-    .open_window = (Window_Open_Info){
-      .title = from_c_str("code::builder"),
-      .kind = Window_Kind_Code_Editor,
-      .position = vec2(700, 100),
-      .width = 400,
-      .height = 400,
-    },
-  });
+  // push_view_inbound_event((View_Inbound_Event){
+  //   .kind = View_Inbound_Event_Open_Window,
+  //   .open_window = (Window_Open_Info){
+  //     .title = from_c_str("code::builder"),
+  //     .kind = Window_Kind_Code_Editor,
+  //     .position = vec2(700, 100),
+  //     .width = 400,
+  //     .height = 400,
+  //   },
+  // });
 }
 
 void close_game(void) {
@@ -708,6 +708,9 @@ motor_device_write_to_register(rawptr data, u64 bits, u32 reg, u32 value) {
 
   Aet_Fault fault = Aet_Fault_None;
   switch (reg) {
+  case Motor_Register_Status:
+    fault = Aet_Fault_Invalid_MMIO_Operation;
+    break;
   case Motor_Register_Direction_X: {
     i32 sign = value == 0 ? 0 : (i32)value < 0 ? -1 : 1;
     f32 magnitude = (f32)sign * device->max_speed;
@@ -715,12 +718,11 @@ motor_device_write_to_register(rawptr data, u64 bits, u32 reg, u32 value) {
     entity->velocity.x = magnitude;
   } break;
   case Motor_Register_Direction_Z: {
-    i32 sign = (i32)value < 0 ? -1 : 1;
+    i32 sign = value == 0 ? 0 : (i32)value < 0 ? -1 : 1;
     f32 magnitude = (f32)sign * device->max_speed;
 
     entity->velocity.z = magnitude;
   } break;
-  case Motor_Register_Status:
   default:
     fault = Aet_Fault_Invalid_Address;
     break;

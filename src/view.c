@@ -1,5 +1,6 @@
 #include "view.h"
 
+#include "asm.h"
 #include "core/allocator.h"
 #include "core/array.h"
 #include "core/imgui.h"
@@ -11,9 +12,11 @@
 #include "document.h"
 #include "font.h"
 #include "render2d.h"
+#include "tools.h"
 
 #include <assert.h>
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 // static Window_Data tmp_code_editor = {0};
@@ -45,7 +48,7 @@ typedef struct Code_Editor {
 
   bool32 capture_input;
   f32 caret_blink_time;
-  Document_Position cursor;
+  // Document_Position cursor;
   usize horizontal_scroll;
   usize vertical_scroll;
 
@@ -53,6 +56,33 @@ typedef struct Code_Editor {
   // multi-tabs
   Document document;
 } Code_Editor;
+
+typedef enum Code_Editor_Command_Boundary {
+  Code_Editor_Command_Boundary_Char_Start,
+  Code_Editor_Command_Boundary_Char_End,
+  Code_Editor_Command_Boundary_Word_Start,
+  Code_Editor_Command_Boundary_Word_End,
+  Code_Editor_Command_Boundary_Line_Start,
+  Code_Editor_Command_Boundary_Line_End,
+} Code_Editor_Command_Boundary;
+
+typedef struct Code_Editor_Command {
+  enum {
+    Code_Editor_Command_Move,
+    Code_Editor_Command_Write,
+    Code_Editor_Command_Delete,
+  } kind;
+  union {
+    struct {
+      String content;
+    } write;
+    struct {
+      Code_Editor_Command_Boundary boundary;
+      usize repeat;
+    } delete;
+  };
+} Code_Editor_Command;
+typedef Array(Code_Editor_Command) Code_Editor_Command_Buffer;
 
 typedef enum Window_Flag : u32 {
   Window_Flag_Focused = 1 << 0,
@@ -675,34 +705,36 @@ static void destroy_window(Window_Data *window) {
   }
 }
 
+// static void code_editor_update_cursor(Code_Editor *editor) {
+//   editor->cursor = unwrap(document_query_position_from_logical_offset(
+//       &editor->document, editor->document.gap_start
+//   ));
+// }
+
 static void code_editor_cells_view(Rectangle rect, rawptr data) {
   Window_Data *window = (Window_Data *)data;
   Code_Editor *editor = &window->editor;
   text_screen_clear(&editor->screen);
 
-  editor->cursor = unwrap(document_query_position_from_logical_offset(
+  Document_Position cursor = unwrap(document_query_position_from_logical_offset(
       &editor->document, editor->document.gap_start
   ));
 
-  if (editor->cursor.line < editor->vertical_scroll) {
-    editor->vertical_scroll = editor->cursor.line;
-  } else if (
-      editor->cursor.line >= editor->vertical_scroll + editor->screen.height
-  ) {
-    editor->vertical_scroll = editor->cursor.line - editor->screen.height + 1;
+  if (cursor.line < editor->vertical_scroll) {
+    editor->vertical_scroll = cursor.line;
+  } else if (cursor.line >= editor->vertical_scroll + editor->screen.height) {
+    editor->vertical_scroll = cursor.line - editor->screen.height + 1;
   }
 
-  if (editor->cursor.col < editor->horizontal_scroll) {
-    editor->horizontal_scroll = editor->cursor.col;
-  } else if (
-      editor->cursor.col >= editor->horizontal_scroll + editor->screen.width
-  ) {
-    editor->horizontal_scroll = editor->cursor.col - editor->screen.width + 1;
+  if (cursor.col < editor->horizontal_scroll) {
+    editor->horizontal_scroll = cursor.col;
+  } else if (cursor.col >= editor->horizontal_scroll + editor->screen.width) {
+    editor->horizontal_scroll = cursor.col - editor->screen.width + 1;
   }
 
   Vec2Int caret = vec2int(
-      (i32)(editor->cursor.col - editor->horizontal_scroll),
-      (i32)(editor->cursor.line - editor->vertical_scroll)
+      (i32)(cursor.col - editor->horizontal_scroll),
+      (i32)(cursor.line - editor->vertical_scroll)
   );
 
   static f32 caret_blink_duration = 1.f;
@@ -725,47 +757,74 @@ static void code_editor_cells_view(Rectangle rect, rawptr data) {
       min_usize(start + editor->screen.height, editor->document.lines.len);
 
   for (usize i = start; i < end; i += 1) {
+    Arena_Transient_Memory clone_mem =
+        arena_begin_transient_memory(&g_model.frame_arena);
+
     Document_Line_Content content =
         unwrap(document_query_line_content(&editor->document, i));
+    String clone = unwrap(
+        document_line_content_clone_to_string(content, g_model.frame_allocator)
+    );
+    Syntax_Highlighter highlighter = aet_asm_syntax_highlighter(clone);
 
     i32 screen_y = (i32)(i - start);
-    i32 screen_x = 0;
 
-    usize rem_scroll = editor->horizontal_scroll;
-    for (usize j = rem_scroll; j < content.head.len; j += 1) {
-      if ((usize)screen_x >= editor->screen.width) {
+    while (true) {
+      Syntax_Token token = highlighter.lex_next_token(&highlighter);
+      if (token.kind == Syntax_Token_Kind_EOF) {
         break;
       }
+      for (usize j = 0; j < token.lexeme.len; j += 1) {
+        i64 x = ((i64)token.start + (i64)j) - (i64)editor->horizontal_scroll;
+        if (x >= (i64)editor->screen.width) {
+          break;
+        }
 
-      Vec2Int coord = vec2int(screen_x, screen_y);
-      usize index = text_screen_coord_to_index(&editor->screen, coord);
+        if (x < 0) {
+          continue;
+        }
 
-      Text_Cell *cell = &editor->screen.cells.items[index];
-      cell->present = true;
-      cell->content = (utf8_char)content.head.data[j];
-      cell->fg = Theme_Color_Foreground;
+        Vec2Int coord = vec2int((i32)x, screen_y);
+        usize index = text_screen_coord_to_index(&editor->screen, coord);
 
-      screen_x += 1;
-    }
+        Text_Cell *cell = &editor->screen.cells.items[index];
+        cell->present = true;
+        cell->content = (utf8_char)token.lexeme.data[j];
 
-    rem_scroll = editor->horizontal_scroll > content.head.len
-                     ? editor->horizontal_scroll - content.head.len
-                     : 0;
-    for (usize j = rem_scroll; j < content.tail.len; j += 1) {
-      if ((usize)screen_x >= editor->screen.width) {
-        break;
+        switch (token.kind) {
+        case Syntax_Token_Kind_EOF:
+          assert(false);
+          break;
+        case Syntax_Token_Kind_Unsupported:
+        case Syntax_Token_Kind_Error:
+          cell->fg = Theme_Color_Error;
+          break;
+        case Syntax_Token_Kind_Comment:
+          cell->fg = Theme_Color_Muted_Soft;
+          break;
+        case Syntax_Token_Kind_Literal:
+          cell->fg = Theme_Color_Accent_Soft;
+          break;
+        case Syntax_Token_Kind_Punctuation:
+        case Syntax_Token_Kind_Delimiter:
+          cell->fg = Theme_Color_Accent_Regular;
+          break;
+        case Syntax_Token_Kind_Identifier:
+          cell->fg = Theme_Color_Foreground;
+          break;
+        case Syntax_Token_Kind_Keyword:
+        case Syntax_Token_Kind_Type:
+          cell->fg = Theme_Color_Accent_Hard;
+          break;
+        case Syntax_Token_Kind_Operator:
+        case Syntax_Token_Kind_Control_Flow:
+          cell->fg = Theme_Color_Accent_Regular;
+          break;
+        }
       }
-
-      Vec2Int coord = vec2int(screen_x, screen_y);
-      usize index = text_screen_coord_to_index(&editor->screen, coord);
-
-      Text_Cell *cell = &editor->screen.cells.items[index];
-      cell->present = true;
-      cell->content = (utf8_char)content.tail.data[j];
-      cell->fg = Theme_Color_Foreground;
-
-      screen_x += 1;
     }
+
+    arena_end_transient_memory(clone_mem);
   }
 
   text_screen_render(
@@ -776,33 +835,216 @@ static void code_editor_cells_view(Rectangle rect, rawptr data) {
         .colors = {
           [Theme_Color_Background] = ISW_BG1,
           [Theme_Color_Foreground] = ISW_CREAM_LIGHT0,
-          [Theme_Color_Muted] = ISW_CREAM_SHADOW,
-          [Theme_Color_Accent] = ISW_RED,
+          [Theme_Color_Error] = ISW_RED_DARK,
+          [Theme_Color_Muted_Soft] = ISW_CREAM_SHADOW,
+          [Theme_Color_Muted_Regular] = ISW_CREAM_DARK,
+          [Theme_Color_Muted_Hard] = ISW_CREAM,
+          [Theme_Color_Accent_Soft] = ISW_YELLOW,
+          [Theme_Color_Accent_Regular] = ISW_ORANGE,
+          [Theme_Color_Accent_Hard] = ISW_RED,
         }
       }
   );
 }
 
+static bool32 code_editor_char_is_whitespace(char c) {
+  return c == '\r' || c == ' ' || c == '\b' || c == '\t';
+}
+
+static void code_editor_process_delete_command(
+    Code_Editor *editor, Code_Editor_Command *cmd
+) {
+  if (cmd->kind != Code_Editor_Command_Delete) {
+    return;
+  }
+
+  switch (cmd->delete.boundary) {
+  case Code_Editor_Command_Boundary_Char_Start:
+    document_delete_chars_back(&editor->document, cmd->delete.repeat);
+    break;
+  case Code_Editor_Command_Boundary_Char_End:
+    document_delete_chars_front(&editor->document, cmd->delete.repeat);
+    break;
+  case Code_Editor_Command_Boundary_Word_Start: {
+    for (usize j = 0; j < cmd->delete.repeat; j += 1) {
+      Document_Position cursor =
+          unwrap(document_query_position_from_logical_offset(
+              &editor->document, editor->document.gap_start
+          ));
+      Document_Position pos = (Document_Position){
+        .line = cursor.line,
+        .col = cursor.col > 0 ? cursor.col - 1 : 0,
+      };
+      usize count = 0;
+
+      if (pos.col == 0) {
+        count += 1;
+      }
+
+      bool32 valid_char_encountered = false;
+      while (pos.col > 0) {
+        Document_Char_Result result =
+            document_query_char_from_position(&editor->document, pos);
+        if (!result.ok) {
+          break;
+        }
+
+        char c = result.value;
+        bool32 is_whitespace = code_editor_char_is_whitespace(c);
+        if (is_whitespace) {
+          if (valid_char_encountered) {
+            break;
+          }
+        } else {
+          valid_char_encountered = true;
+        }
+        pos.col -= 1;
+      }
+
+      count += cursor.col - pos.col;
+      document_delete_chars_back(&editor->document, count);
+    }
+  } break;
+  case Code_Editor_Command_Boundary_Word_End: {
+    for (usize j = 0; j < cmd->delete.repeat; j += 1) {
+      Document_Position cursor =
+          unwrap(document_query_position_from_logical_offset(
+              &editor->document, editor->document.gap_start
+          ));
+      Document_Position pos = cursor;
+
+      Document_Span_Result span_result =
+          document_query_line_span_from_line_index(&editor->document, pos.line);
+      if (!span_result.ok) {
+        break;
+      }
+
+      usize max_col = span_result.value.end - span_result.value.start;
+      usize count = 0;
+
+      if (pos.col >= max_col) {
+        count += 1;
+      }
+
+      bool32 valid_char_encountered = false;
+      while (pos.col < max_col) {
+        Document_Char_Result result =
+            document_query_char_from_position(&editor->document, pos);
+        if (!result.ok) {
+          break;
+        }
+
+        char c = result.value;
+        bool32 is_whitespace = code_editor_char_is_whitespace(c);
+        if (is_whitespace) {
+          if (valid_char_encountered) {
+            break;
+          }
+        } else {
+          valid_char_encountered = true;
+        }
+        pos.col += 1;
+      }
+
+      count += pos.col - cursor.col;
+      document_delete_chars_front(&editor->document, count);
+    }
+  } break;
+  case Code_Editor_Command_Boundary_Line_Start: {
+    assert(false);
+  } break;
+  case Code_Editor_Command_Boundary_Line_End: {
+    assert(false);
+  } break;
+  }
+}
+
+static void code_editor_process_commands(
+    Code_Editor *editor, Code_Editor_Command_Buffer buffer
+) {
+  for (usize i = 0; i < buffer.len; i += 1) {
+    Code_Editor_Command *cmd = array_get_ptr(buffer, i);
+
+    switch (cmd->kind) {
+    case Code_Editor_Command_Move:
+    case Code_Editor_Command_Write:
+      document_write_string(&editor->document, cmd->write.content);
+      break;
+    case Code_Editor_Command_Delete: {
+      code_editor_process_delete_command(editor, cmd);
+    } break;
+    }
+  }
+}
+
 static void code_editor_view(Window_Data *window) {
+  static Code_Editor_Command cmds[128] = {0};
+
   Code_Editor *editor = &window->editor;
+  usize cmd_count = 0;
 
   if (editor->capture_input) {
+    builder_reset(&g_model.builder);
+
+    bool32 ctrl_mod = app_key_pressed(Keyboard_Key_Left_Control) ||
+                      app_key_pressed(Keyboard_Key_Right_Control);
+
     Text_Array chars = app_chars_pressed();
     for (usize i = 0; i < chars.len; i += 1) {
-      document_write_char(&editor->document, (char)chars.items[i]);
-    }
-
-    if (app_key_pressed(Keyboard_Key_Backspace)) {
-      document_delete_chars(
-          &editor->document, app_key_press_count(Keyboard_Key_Backspace)
-      );
+      builder_write_char(&g_model.builder, (char)chars.items[i]);
     }
 
     if (app_key_pressed(Keyboard_Key_Enter)) {
-      usize count = app_key_press_count(Keyboard_Key_Enter);
-      for (usize i = 0; i < count; i += 1) {
-        document_write_char(&editor->document, '\n');
+      usize repeat = app_key_press_count(Keyboard_Key_Enter);
+      for (usize i = 0; i < repeat; i += 1) {
+        builder_write_char(&g_model.builder, '\n');
       }
+    }
+
+    if (app_key_pressed(Keyboard_Key_V) && ctrl_mod) {
+      String clipboard_content = app_get_clipboard_content();
+
+      usize repeat = app_key_press_count(Keyboard_Key_V);
+      for (usize i = 0; i < repeat; i += 1) {
+        cmds[cmd_count++] = (Code_Editor_Command){
+          .kind = Code_Editor_Command_Write,
+          .write = {
+            .content = clipboard_content,
+          },
+        };
+      }
+    }
+
+    if (g_model.builder.len > 0) {
+      cmds[cmd_count++] = (Code_Editor_Command){
+        .kind = Code_Editor_Command_Write,
+        .write = {
+          .content =
+              builder_clone_string(&g_model.builder, g_model.frame_allocator)
+        },
+      };
+    }
+
+    if (app_key_pressed(Keyboard_Key_Backspace)) {
+      cmds[cmd_count++] = (Code_Editor_Command){
+        .kind = Code_Editor_Command_Delete,
+        .delete = {
+          .boundary = ctrl_mod ? Code_Editor_Command_Boundary_Word_Start
+                               : Code_Editor_Command_Boundary_Char_Start,
+          .repeat = app_key_press_count(Keyboard_Key_Backspace),
+        }
+      };
+    }
+
+    if (app_key_pressed(Keyboard_Key_Delete)) {
+      cmds[cmd_count++] = (Code_Editor_Command){
+        .kind = Code_Editor_Command_Delete,
+        .delete = {
+          .boundary = ctrl_mod ? Code_Editor_Command_Boundary_Word_End
+                               : Code_Editor_Command_Boundary_Char_End,
+          .repeat = app_key_press_count(Keyboard_Key_Delete),
+        }
+      };
     }
 
     if (app_key_pressed(Keyboard_Key_Left)) {
@@ -836,6 +1078,62 @@ static void code_editor_view(Window_Data *window) {
             ) == Document_Error_None
         );
       }
+    }
+  }
+
+  code_editor_process_commands(
+      editor, (Code_Editor_Command_Buffer){.items = cmds, .len = cmd_count}
+  );
+
+  element_container((&(Element_Create_Info){
+    .layout = Element_Layout_Kind_Row,
+    .sizing = {.width = element_sizing_grow(), .height = element_sizing_fit()},
+
+  })) {
+    element_button((&(Element_Create_Info){
+      .layout = Element_Layout_Kind_Row,
+      .sizing = {.width = element_sizing_fit(), .height = element_sizing_fit()},
+      .style = {
+        .base.linears.border = 1.f,
+        .base.linears.child_gap = 4.f,
+        .base.constraints.padding = element_constraint(6, 6, 3, 3),
+        .base.variable_colors.border = {
+          .is_cardinal = true,
+          .cardinal = {
+            [Cardinality_Top] = ISW_CREAM_LIGHT0,
+            [Cardinality_Left] = ISW_CREAM_LIGHT0,
+            [Cardinality_Bottom] = ISW_BG0,
+            [Cardinality_Right] = ISW_BG0,
+          },
+        }
+      },
+    })) {
+      Element_Client_Info element = get_current_element();
+      if (element.events & Element_Event_Left_Clicked) {
+        // TODO(nico): assemble the current document
+        Document_Clone_Content_Result clone_result =
+            document_clone_content(&editor->document, g_model.frame_allocator);
+        if (!clone_result.ok) {
+          assert(false);
+        }
+
+        Aet_Assembler_Result asm_result =
+            aet_assemble(clone_result.value, g_model.frame_allocator);
+        if (!asm_result.ok) {
+          assert(false);
+        }
+
+        printf("Compiled successfully!\n");
+      }
+
+      element_label((&(Element_Create_Info){
+        .text = from_c_str(">"),
+        .style = {
+          .base.linears.font_size = 18.f,
+          .base.colors.text = ISW_BG0,
+          .font_index = Font_ID_IBMPlex_Mono,
+        },
+      }));
     }
   }
 
@@ -905,12 +1203,13 @@ static void code_editor_view(Window_Data *window) {
       },
     }));
 
+    Document_Position cursor =
+        unwrap(document_query_position_from_logical_offset(
+            &editor->document, editor->document.gap_start
+        ));
     builder_reset(&g_model.builder);
     builder_write(
-        &g_model.builder,
-        "ln %d, col %d",
-        (i32)editor->cursor.line,
-        (i32)editor->cursor.col
+        &g_model.builder, "ln %d, col %d", (i32)cursor.line, (i32)cursor.col
     );
     String pos =
         builder_clone_string(&g_model.builder, g_model.frame_allocator);

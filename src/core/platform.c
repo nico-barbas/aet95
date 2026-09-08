@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "core/math.h"
+#include "core/strings.h"
 #include "core/types.h"
 #include "stb_image.h"
 
@@ -507,6 +508,11 @@ u64 app_get_last_time_ns() {
 
 f32 app_get_elapsed_time() {
   return (f32)_app->elapsed_time;
+}
+
+String app_get_clipboard_content() {
+  const char *raw_str = glfwGetClipboardString(_app->window_handle);
+  return from_c_str(raw_str);
 }
 
 Vec2 app_mouse_position() {

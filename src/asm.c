@@ -20,59 +20,6 @@
 #define AET_KEYWORD_MAX_LEN 6
 #define AET_FIRST_PSEUDO_ROW ((usize)Aet_CPU_Opcode_MAX)
 
-/*
-  NOTE(nico):
-  single source of truth for all the pseudo-instructions.
-  internal value name | mnemonic | form | instruction count | label allowed
-*/
-#define AET_PSEUDO_INSTRUCTIONS(X) X(Lf, "loadf", RI, 2, false)
-
-typedef enum Aet_Assembly_Token_Kind {
-  Aet_Assembly_Token_Kind_EOF,
-  Aet_Assembly_Token_Kind_Newline,
-  Aet_Assembly_Token_Kind_Comment,
-  Aet_Assembly_Token_Kind_Identifier,
-
-  Aet_Assembly_Token_Kind_Comma,
-  Aet_Assembly_Token_Kind_Colon,
-  Aet_Assembly_Token_Kind_Integer_Literal,
-  Aet_Assembly_Token_Kind_Float_Literal,
-
-  // Registers
-  Aet_Assembly_Token_Kind_register_start_,
-  Aet_Assembly_Token_Kind_Rx0,
-  Aet_Assembly_Token_Kind_Rx1,
-  Aet_Assembly_Token_Kind_Rx2,
-  Aet_Assembly_Token_Kind_R0,
-  Aet_Assembly_Token_Kind_R1,
-  Aet_Assembly_Token_Kind_R2,
-  Aet_Assembly_Token_Kind_R3,
-  Aet_Assembly_Token_Kind_R4,
-  Aet_Assembly_Token_Kind_R5,
-  Aet_Assembly_Token_Kind_R6,
-  Aet_Assembly_Token_Kind_R7,
-  Aet_Assembly_Token_Kind_R8,
-  Aet_Assembly_Token_Kind_R9,
-  Aet_Assembly_Token_Kind_R10,
-  Aet_Assembly_Token_Kind_R11,
-  Aet_Assembly_Token_Kind_R12,
-  Aet_Assembly_Token_Kind_register_end_,
-
-  Aet_Assembly_Token_Kind_instruction_start_,
-#define X(name, text, opcode, form, ext, instr_count, label_allowed)           \
-  Aet_Assembly_Token_Kind_##name,
-  AET_INSTRUCTIONS(X)
-#undef X
-      Aet_Assembly_Token_Kind_instruction_end_,
-
-  Aet_Assembly_Token_Kind_pseudo_start_,
-#define X(name, text, form, instr_count, label_allowed)                        \
-  Aet_Assembly_Token_Kind_##name,
-  AET_PSEUDO_INSTRUCTIONS(X)
-#undef X
-      Aet_Assembly_Token_Kind_pseudo_end_
-} Aet_Assembly_Token_Kind;
-
 typedef enum Aet_Assembly_Instruction_Variant {
   Aet_Assembly_Instruction_Variant_Invalid,
   Aet_Assembly_Instruction_Variant_Direct,
@@ -190,9 +137,7 @@ typedef struct Aet_Assembly_Instruction_Binary {
 typedef Result(
     Aet_Assembly_Token_Kind, Aet_Assembler_Error
 ) Aet_Assembly_Number_Literal_Result;
-typedef Result(
-    Aet_Assembly_Token, Aet_Assembler_Error
-) Aet_Assembly_Token_Result;
+
 typedef Option(Aet_Assembly_Token_Kind) Aet_Assembly_Token_Option;
 typedef Result(u32, Aet_Assembler_Error) Aet_Assembly_Immediate_Result;
 
@@ -204,10 +149,6 @@ typedef struct Aet_Immediate_Range {
   i64 min;
   i64 max;
 } Aet_Immediate_Range;
-
-static bool32 char_is_letter(char c) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-}
 
 static bool32 char_is_whitespace(char c) {
   return c == '\r' || c == ' ' || c == '\b' || c == '\t';
@@ -505,21 +446,6 @@ aet_assembler_lex_identifier(String_Reader *reader, bool32 allow_numbers) {
   return Aet_Assembler_Error_None;
 }
 
-// static Aet_Assembly_Instruction_Info_Option
-// aet_assembler_match_instruction(String str) {
-//   for (usize i = 0; i < countof(aet_instruction_lookup); i += 1) {
-//     const Aet_Assembly_Instruction_Info *keyword =
-//     &aet_instruction_lookup[i];
-
-//     if (keyword->len == str.len &&
-//         memcmp(keyword->text, str.data, str.len) == 0) {
-//       return some(Aet_Assembly_Instruction_Info_Option, *keyword);
-//     }
-//   }
-
-//   return none(Aet_Assembly_Instruction_Info_Option);
-// }
-
 static Aet_Assembly_Token_Option aet_assembler_match_register(String str) {
   if (str.len < 2 || str.len > 3 ||
       (str.data[0] != 'r' && str.data[0] != 'R')) {
@@ -556,8 +482,7 @@ static Aet_Assembly_Token_Option aet_assembler_match_register(String str) {
   return some(Aet_Assembly_Token_Option, reg);
 }
 
-static Aet_Assembly_Token_Result
-aet_assembler_next_token(String_Reader *reader) {
+Aet_Assembly_Token_Result aet_assembler_next_token(String_Reader *reader) {
   aet_assembler_skip_whitespace(reader);
   if (string_reader_is_eof(reader)) {
     return ok(

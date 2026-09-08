@@ -30,9 +30,18 @@ typedef struct Arena_Data {
   byte *buf;
   usize size;
   usize offset;
+  usize transient_count;
 } Arena_Data;
 
+typedef struct Arena_Transient_Memory {
+  Arena_Data *arena;
+  usize previous_offset;
+} Arena_Transient_Memory;
+
 void init_arena(Arena_Data *arena, byte *buf, usize size);
+Arena_Transient_Memory arena_begin_transient_memory(Arena_Data *arena);
+void arena_end_transient_memory(Arena_Transient_Memory mem);
+
 Allocator arena_allocator(Arena_Data *arena);
 
 Allocator heap_allocator(void);

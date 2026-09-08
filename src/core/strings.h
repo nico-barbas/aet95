@@ -74,5 +74,6 @@ String filepath_get_dir(String path);
 bool32 char_is_number(char c);
 bool32 char_is_hex(char c);
 bool32 char_is_binary(char c);
+bool32 char_is_letter(char c);
 
 #endif

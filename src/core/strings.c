@@ -704,3 +704,7 @@ bool32 char_is_hex(char c) {
 bool32 char_is_binary(char c) {
   return c == '0' || c == '1';
 }
+
+bool32 char_is_letter(char c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}

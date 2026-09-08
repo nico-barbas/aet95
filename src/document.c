@@ -63,6 +63,56 @@ void document_clear_content(Document *document) {
   document->current_line = 0;
 }
 
+static usize document_current_gap_size(Document *document) {
+  return document->gap_end - document->gap_start;
+}
+
+static usize document_suffix_len(Document *document) {
+  return document->buffer_len - document->gap_end;
+}
+
+usize document_text_len(Document *document) {
+  return document->buffer_len - document_current_gap_size(document);
+}
+
+static usize document_logical_to_physical_offset_unsafe(
+    Document *document, usize logical_offset
+) {
+  return logical_offset < document->gap_start
+             ? logical_offset
+             : logical_offset + document_current_gap_size(document);
+}
+
+Document_Clone_Content_Result
+document_clone_content(Document *document, Allocator allocator) {
+  usize len = document_text_len(document);
+  usize prefix_len = document->gap_start;
+
+  Allocation_Result alloc_result =
+      allocator.alloc(allocator, sizeof(char) * len);
+  if (alloc_result.err != Allocation_Error_None) {
+    return err(Document_Clone_Content_Result, Document_Error_Failed_To_Clone);
+  }
+
+  char *clone = (char *)alloc_result.allocation;
+  memcpy(clone, document->buffer, prefix_len * sizeof(char));
+  memcpy(
+      clone + prefix_len,
+      document->buffer + document->gap_end,
+      document_suffix_len(document) * sizeof(char)
+  );
+  return ok(
+      Document_Clone_Content_Result,
+      ((String){
+        .data = clone,
+        .ptr = clone,
+        .len = len,
+        .is_dynamically_allocated = true,
+        .is_owned = true,
+      })
+  );
+}
+
 static Document_Error document_grow_buffer(Document *document) {
   char *old_buffer = document->buffer;
 
@@ -80,18 +130,6 @@ static Document_Error document_grow_buffer(Document *document) {
   document->allocator.free(document->allocator, old_buffer);
 
   return Document_Error_None;
-}
-
-static usize document_current_gap_size(Document *document) {
-  return document->gap_end - document->gap_start;
-}
-
-static usize document_suffix_len(Document *document) {
-  return document->buffer_len - document->gap_end;
-}
-
-usize document_text_len(Document *document) {
-  return document->buffer_len - document_current_gap_size(document);
 }
 
 static Document_Error document_expand_gap(Document *document) {
@@ -123,6 +161,17 @@ static void document_collapse_gap(Document *document) {
   );
   document->buffer_len -= document->gap_end - document->gap_start;
   document->gap_end = document->gap_start;
+}
+
+Document_Char_Result
+document_query_char_from_position(Document *document, Document_Position info) {
+  usize logical_offset =
+      try(Document_Char_Result,
+          document_query_logical_offset_from_position(document, info));
+
+  usize physical_offset =
+      document_logical_to_physical_offset_unsafe(document, logical_offset);
+  return ok(Document_Char_Result, document->buffer[physical_offset]);
 }
 
 // NOTE(nico): This process is not atomic sadly
@@ -180,7 +229,7 @@ Document_Error document_write_string(Document *document, String str) {
   return Document_Error_None;
 }
 
-Document_Error document_delete_chars(Document *document, usize n) {
+Document_Error document_delete_chars_back(Document *document, usize n) {
   usize _n = n;
   if (_n > document->gap_start) {
     _n = document->gap_start;
@@ -214,6 +263,38 @@ Document_Error document_delete_chars(Document *document, usize n) {
   }
 
   document->gap_start -= _n;
+  return Document_Error_None;
+}
+
+Document_Error document_delete_chars_front(Document *document, usize n) {
+  usize suffix_len = document_suffix_len(document);
+
+  usize _n = n;
+  if (_n > suffix_len) {
+    _n = suffix_len;
+  }
+
+  usize a = document->gap_start + _n;
+  usize deleted_line_count = 0;
+  for (usize i = document->current_line + 1; i < document->lines.len; i += 1) {
+    if (document->lines.items[i].logical_offset > a) {
+      break;
+    }
+    deleted_line_count += 1;
+  }
+
+  List_Error error = document_line_list_ordered_remove_range(
+      &document->lines, document->current_line + 1, deleted_line_count
+  );
+  if (error != List_Error_None) {
+    return Document_Error_Failed_To_Write;
+  }
+
+  for (usize i = document->current_line + 1; i < document->lines.len; i += 1) {
+    document->lines.items[i].logical_offset -= _n;
+  }
+
+  document->gap_end += _n;
   return Document_Error_None;
 }
 
@@ -265,23 +346,12 @@ document_query_position_from_logical_offset(Document *document, usize offset) {
   );
 }
 
-static Document_Span document_query_line_span(Document *document, usize i) {
-  return (Document_Span){
-    .start = document->lines.items[i].logical_offset,
-    .end = (i + 1 < document->lines.len)
-               ? document->lines.items[i + 1].logical_offset - 1
-               : document_text_len(document),
-  };
-}
-
 Document_Logical_Offset_Result document_query_logical_offset_from_position(
     Document *document, Document_Position info
 ) {
-  if (info.line >= document->lines.len) {
-    return err(Document_Logical_Offset_Result, Document_Error_Invalid_Position);
-  }
-
-  Document_Span span = document_query_line_span(document, info.line);
+  Document_Span span =
+      try(Document_Logical_Offset_Result,
+          document_query_line_span_from_line_index(document, info.line));
 
   if (info.col > span.end - span.start) {
     return err(Document_Logical_Offset_Result, Document_Error_Invalid_Position);
@@ -290,13 +360,29 @@ Document_Logical_Offset_Result document_query_logical_offset_from_position(
   return ok(Document_Logical_Offset_Result, span.start + info.col);
 }
 
-Document_Line_Content_Result
-document_query_line_content(Document *document, usize i) {
+Document_Span_Result
+document_query_line_span_from_line_index(Document *document, usize i) {
   if (i >= document->lines.len) {
-    return err(Document_Line_Content_Result, Document_Error_Invalid_Position);
+    return err(Document_Span_Result, Document_Error_Invalid_Position);
   }
 
-  Document_Span span = document_query_line_span(document, i);
+  return ok(
+      Document_Span_Result,
+      ((Document_Span){
+        .start = document->lines.items[i].logical_offset,
+        .end = (i + 1 < document->lines.len)
+                   ? document->lines.items[i + 1].logical_offset - 1
+                   : document_text_len(document),
+      })
+  );
+}
+
+Document_Line_Content_Result
+document_query_line_content(Document *document, usize i) {
+  Document_Span span =
+      try(Document_Line_Content_Result,
+          document_query_line_span_from_line_index(document, i));
+
   usize gap_width = document_current_gap_size(document);
   usize split = clamp_usize(document->gap_start, span.start, span.end);
 
@@ -312,6 +398,44 @@ document_query_line_content(Document *document, usize i) {
           .data = document->buffer + split + gap_width,
           .len = span.end - split,
         }
+      })
+  );
+}
+
+// Helpers
+Document_Clone_Line_Content_Result document_line_content_clone_to_string(
+    Document_Line_Content content, Allocator allocator
+) {
+  usize len = content.head.len + content.tail.len;
+
+  Allocation_Result alloc_result =
+      allocator.alloc(allocator, len * sizeof(char));
+  if (alloc_result.err != Allocation_Error_None) {
+    return err(
+        Document_Clone_Line_Content_Result, Document_Error_Failed_To_Allocate
+    );
+  }
+
+  char *raw_str = (char *)alloc_result.allocation;
+  if (content.head.len > 0) {
+    memcpy(raw_str, content.head.data, content.head.len * sizeof(char));
+  }
+  if (content.tail.len > 0) {
+    memcpy(
+        raw_str + content.head.len,
+        content.tail.data,
+        content.tail.len * sizeof(char)
+    );
+  }
+
+  return ok(
+      Document_Clone_Line_Content_Result,
+      ((String){
+        .data = raw_str,
+        .ptr = raw_str,
+        .len = len,
+        .is_dynamically_allocated = true,
+        .is_owned = true,
       })
   );
 }

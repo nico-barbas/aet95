@@ -7,6 +7,7 @@
 
 typedef enum Document_Error {
   Document_Error_None,
+  Document_Error_Failed_To_Clone,
   Document_Error_Failed_To_Allocate,
   Document_Error_Invalid_Position,
   Document_Error_Failed_To_Write,
@@ -63,30 +64,46 @@ typedef struct Document_Create_Info {
 } Document_Create_Info;
 
 typedef Result(Document, Document_Error) Document_Create_Result;
+typedef Result(char, Document_Error) Document_Char_Result;
 typedef Result(Document_Position, Document_Error) Document_Position_Result;
+typedef Result(Document_Span, Document_Error) Document_Span_Result;
 typedef Result(usize, Document_Error) Document_Logical_Offset_Result;
 typedef Result(
     Document_Line_Content, Document_Error
 ) Document_Line_Content_Result;
+typedef Result(String, Document_Error) Document_Clone_Content_Result;
+typedef Result(String, Document_Error) Document_Clone_Line_Content_Result;
 
 Document_Create_Result
 make_document(Document_Create_Info *info, Allocator allocator);
 void destroy_document(Document document);
 
 void document_clear_content(Document *document);
+Document_Clone_Content_Result
+document_clone_content(Document *document, Allocator allocator);
 usize document_text_len(Document *document);
 Document_Error document_write_char(Document *document, char c);
 Document_Error document_write_string(Document *document, String str);
-Document_Error document_delete_chars(Document *document, usize n);
+Document_Error document_delete_chars_back(Document *document, usize n);
+Document_Error document_delete_chars_front(Document *document, usize n);
 Document_Error document_move_gap(Document *document, usize pos);
 
 // All query operations
+Document_Char_Result
+document_query_char_from_position(Document *document, Document_Position info);
 Document_Position_Result
 document_query_position_from_logical_offset(Document *document, usize offset);
 Document_Logical_Offset_Result document_query_logical_offset_from_position(
     Document *document, Document_Position info
 );
+Document_Span_Result
+document_query_line_span_from_line_index(Document *document, usize i);
 Document_Line_Content_Result
 document_query_line_content(Document *document, usize i);
+
+// Helpers
+Document_Clone_Line_Content_Result document_line_content_clone_to_string(
+    Document_Line_Content content, Allocator allocator
+);
 
 #endif

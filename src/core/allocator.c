@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 
+#include <assert.h>
 #include <stdlib.h>
 
 static Allocation_Result arena_alloc(Allocator allocator, usize size) {
@@ -47,6 +48,22 @@ static Allocation_Result arena_free_all(Allocator allocator) {
 
 void init_arena(Arena_Data *arena, byte *buf, usize size) {
   *arena = (Arena_Data){.buf = buf, .size = size, .offset = 0};
+}
+
+Arena_Transient_Memory arena_begin_transient_memory(Arena_Data *arena) {
+  Arena_Transient_Memory mem = {
+    .arena = arena,
+    .previous_offset = arena->offset,
+  };
+  arena->transient_count += 1;
+  return mem;
+}
+
+void arena_end_transient_memory(Arena_Transient_Memory mem) {
+  assert(mem.arena->offset >= mem.previous_offset);
+  assert(mem.arena->transient_count > 0);
+  mem.arena->offset = mem.previous_offset;
+  mem.arena->transient_count -= 1;
 }
 
 Allocator arena_allocator(Arena_Data *arena) {
