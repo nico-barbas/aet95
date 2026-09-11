@@ -133,7 +133,7 @@ typedef struct Element_Position {
   Vec2 percent_offset;
 } Element_Position;
 
-typedef enum Element_Ease_Fn : byte {
+typedef enum Element_Ease_Fn : u8 {
   Element_Ease_Fn_Linear,
   Element_Ease_Fn_In,
   Element_Ease_Fn_Out,

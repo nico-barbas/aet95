@@ -110,11 +110,10 @@ static void input_key_callback(
 static void
 input_mouse_scroll_callback(GLFWwindow *window, f64 xoffset, f64 yoffset);
 
-static void
-input_char_pressed_callback(GLFWwindow *window, utf8_char codepoint);
+static void input_char_pressed_callback(GLFWwindow *window, u32 codepoint);
 
 bool32 init_app(App_Create_Info *info, Allocator allocator) {
-  _Static_assert(
+  static_assert(
       sizeof(GPU_Vertex_Attribute) == sizeof(WGPUVertexAttribute),
       "GPU_Vertex_Attribute size mismatch with WGPUVertexAttribute"
   );
@@ -512,7 +511,7 @@ f32 app_get_elapsed_time() {
 
 String app_get_clipboard_content() {
   const char *raw_str = glfwGetClipboardString(_app->window_handle);
-  return from_c_str(raw_str);
+  return from_cstring(raw_str);
 }
 
 Vec2 app_mouse_position() {
@@ -655,15 +654,14 @@ input_mouse_scroll_callback(GLFWwindow *window, f64 xoffset, f64 yoffset) {
   _app->mouse_scoll = (f32)yoffset;
 }
 
-static void
-input_char_pressed_callback(GLFWwindow *window, utf8_char codepoint) {
+static void input_char_pressed_callback(GLFWwindow *window, u32 codepoint) {
   (void)window;
   if (_app->char_buffer_len >= APP_CHAR_BUFFER_CAP) {
     log_debug(&_app->logger, "Char buffer capacity reached");
     return;
   }
 
-  _app->char_buffer[_app->char_buffer_len++] = codepoint;
+  _app->char_buffer[_app->char_buffer_len++] = (utf8_char)codepoint;
 }
 
 /////////////////////////////
@@ -778,75 +776,78 @@ void gpu_buffer_write(GPU_Buffer_Memory memory, void *data, usize size) {
 /////////////////////////////
 // GPU Texture management
 /////////////////////////////
-GPU_Texture make_gpu_texture(GPU_Texture_Create_Info *info) {
-  if (_app == nullptr || _app->gpu_device == nullptr ||
-      _app->gpu_queue == nullptr) {
-    return (GPU_Texture){0};
+typedef Result(GPU_Texture_Format, GPU_Error) GPU_Texture_Format_Parse_Result;
+static GPU_Texture_Format_Parse_Result
+gpu_texture_format_parse(GPU_Texture_Space space, u32 channels) {
+  GPU_Texture_Format result = {0};
+
+  switch (channels) {
+  case 1:
+    result = GPU_Texture_Format_R8Unorm;
+    break;
+  case 2:
+    result = GPU_Texture_Format_RG8Unorm;
+    break;
+  case 3:
+    return err(GPU_Texture_Format_Parse_Result, GPU_Error_Invalid_Texture_Data);
+  case 4:
+    result = space == GPU_Texture_Space_sRGB ? GPU_Texture_Format_RGBA8UnormSrgb
+                                             : GPU_Texture_Format_RGBA8Unorm;
+    break;
+  default:
+    return err(GPU_Texture_Format_Parse_Result, GPU_Error_Invalid_Texture_Data);
   }
 
-  byte *data = nullptr;
-  i32 channels = 0;
+  return ok(GPU_Texture_Format_Parse_Result, result);
+}
 
-  GPU_Texture texture = {0};
-  switch (info->kind) {
-  case GPU_Texture_Create_Info_Empty:
+static GPU_Texture_Create_Result
+make_gpu_texture_2d(GPU_Texture_Create_Info *info) {
+  byte *data = nullptr;
+
+  GPU_Texture texture = {
+    .kind = info->kind,
+    .space = info->space,
+  };
+
+  switch (info->source) {
+  case GPU_Texture_Source_Empty:
     texture.width = info->empty.width;
     texture.height = info->empty.height;
-    texture.space = info->space;
-    channels = (i32)info->empty.channels;
+    texture.channels = info->empty.channels;
     break;
-  case GPU_Texture_Create_Info_File: {
+  case GPU_Texture_Source_File: {
+    if (!string_is_terminated(info->file)) {
+      return err(GPU_Texture_Create_Result, GPU_Error_Invalid_Texture_Data);
+    }
+
     // FIXME(nico): check if the file path is null terminated
-    i32 width, height;
-    data = stbi_load(info->file_path.data, &width, &height, &channels, 4);
+    i32 width, height, channels;
+    data = (byte *)stbi_load(info->file.data, &width, &height, &channels, 4);
 
     if (data == nullptr) {
-      return (GPU_Texture){0};
+      return err(GPU_Texture_Create_Result, GPU_Error_Uninitialized_Backend);
     }
 
     texture.width = (u32)width;
     texture.height = (u32)height;
-    texture.space = info->space;
+    texture.channels = (u32)channels;
   } break;
-  case GPU_Texture_Create_Info_Memory:
+  case GPU_Texture_Source_Memory:
     assert(false);
     break;
-  case GPU_Texture_Create_Info_Raw_Memory: {
-    if (info->raw.channels != 4) {
-      return (GPU_Texture){0};
-    }
-
+  case GPU_Texture_Source_Raw_Memory: {
     data = info->raw.data;
-    channels = (i32)info->raw.channels;
+    texture.channels = info->raw.channels;
     texture.width = info->raw.width;
     texture.height = info->raw.height;
-    texture.space = info->space;
   } break;
   }
 
-  switch (channels) {
-  case 1:
-    texture.format = GPU_Texture_Format_R8Unorm;
-    break;
-  case 2:
-    texture.format = GPU_Texture_Format_RG8Unorm;
-    break;
-  case 3:
-    channels = 4;
-    texture.format = info->space == GPU_Texture_Space_sRGB
-                         ? GPU_Texture_Format_RGBA8UnormSrgb
-                         : GPU_Texture_Format_RGBA8Unorm;
-    break;
-  case 4:
-    texture.format = info->space == GPU_Texture_Space_sRGB
-                         ? GPU_Texture_Format_RGBA8UnormSrgb
-                         : GPU_Texture_Format_RGBA8Unorm;
-    break;
-  default:
-    return (GPU_Texture){0};
-  }
+  texture.format =
+      try(GPU_Texture_Create_Result,
+          gpu_texture_format_parse(info->space, texture.channels));
 
-  texture.channels = (u32)channels;
   texture.handle = wgpuDeviceCreateTexture(
       _app->gpu_device,
       &(WGPUTextureDescriptor){
@@ -854,8 +855,7 @@ GPU_Texture make_gpu_texture(GPU_Texture_Create_Info *info) {
             (WGPUExtent3D){
               .width = (u32)texture.width,
               .height = (u32)texture.height,
-              .depthOrArrayLayers =
-                  1, // NOTE(nico): what is this? For 3d textures?
+              .depthOrArrayLayers = 1,
             },
         .mipLevelCount = 1, // NOTE(nico): This is very specific for 2d renders
         .sampleCount = 1,
@@ -866,7 +866,7 @@ GPU_Texture make_gpu_texture(GPU_Texture_Create_Info *info) {
   );
 
   if (texture.handle == nullptr) {
-    return (GPU_Texture){0};
+    return err(GPU_Texture_Create_Result, GPU_Error_Failed_To_Create_Texture);
   }
 
   if (data != nullptr) {
@@ -878,14 +878,14 @@ GPU_Texture make_gpu_texture(GPU_Texture_Create_Info *info) {
           .aspect = WGPUTextureAspect_All,
         },
         data,
-        (usize)(texture.width * texture.height * (u32)channels),
+        (usize)(texture.width * texture.height * texture.channels),
         &(WGPUTexelCopyBufferLayout){
-          .bytesPerRow = (u32)(texture.width * (u32)channels),
-          .rowsPerImage = (u32)texture.height,
+          .bytesPerRow = texture.width * texture.channels,
+          .rowsPerImage = texture.height,
         },
         &(WGPUExtent3D){
-          .width = (u32)texture.width,
-          .height = (u32)texture.height,
+          .width = texture.width,
+          .height = texture.height,
           .depthOrArrayLayers = 1,
         }
     );
@@ -893,16 +893,81 @@ GPU_Texture make_gpu_texture(GPU_Texture_Create_Info *info) {
 
   // Only the file path owns its pixels (loaded by stbi); raw memory data
   // stays owned by the caller
-  if (info->kind == GPU_Texture_Create_Info_File) {
+  if (info->source == GPU_Texture_Source_File) {
     stbi_image_free(data);
   }
 
-  return texture;
+  return ok(GPU_Texture_Create_Result, texture);
 }
 
-GPU_Texture make_gpu_depth_texture(u32 width, u32 height) {
+static GPU_Texture_Create_Result
+make_gpu_texture_2d_array(GPU_Texture_Create_Info *info) {
+  GPU_Texture texture = {
+    .kind = info->kind,
+    .space = info->space,
+  };
+
+  switch (info->source) {
+  case GPU_Texture_Source_Empty:
+    texture.width = info->empty.width;
+    texture.height = info->empty.height;
+    texture.space = info->space;
+    texture.layers = info->layers;
+    texture.channels = info->empty.channels;
+    break;
+  case GPU_Texture_Source_File:
+  case GPU_Texture_Source_Memory:
+  case GPU_Texture_Source_Raw_Memory:
+    return err(GPU_Texture_Create_Result, GPU_Error_Invalid_Texture_Data);
+  }
+
+  texture.format =
+      try(GPU_Texture_Create_Result,
+          gpu_texture_format_parse(info->space, texture.format));
+
+  texture.handle = wgpuDeviceCreateTexture(
+      _app->gpu_device,
+      &(WGPUTextureDescriptor){
+        .size =
+            (WGPUExtent3D){
+              .width = texture.width,
+              .height = texture.height,
+              .depthOrArrayLayers = texture.layers,
+            },
+        .mipLevelCount = 1, // NOTE(nico): This is very specific for 2d renders
+        .sampleCount = 1,
+        .dimension = WGPUTextureDimension_2D,
+        .format = (WGPUTextureFormat)texture.format,
+        .usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst,
+      }
+  );
+
+  if (texture.handle == nullptr) {
+    return err(GPU_Texture_Create_Result, GPU_Error_Failed_To_Create_Texture);
+  }
+
+  return ok(GPU_Texture_Create_Result, texture);
+}
+
+GPU_Texture_Create_Result make_gpu_texture(GPU_Texture_Create_Info *info) {
+  if (_app == nullptr || _app->gpu_device == nullptr ||
+      _app->gpu_queue == nullptr) {
+    return err(GPU_Texture_Create_Result, GPU_Error_Uninitialized_Backend);
+  }
+
+  switch (info->kind) {
+  case GPU_Texture_Kind_2D:
+    return make_gpu_texture_2d(info);
+  case GPU_Texture_Kind_2D_Array:
+    return make_gpu_texture_2d_array(info);
+  }
+
+  return err(GPU_Texture_Create_Result, GPU_Error_Invalid_Texture_Data);
+}
+
+GPU_Texture_Create_Result make_gpu_depth_texture(u32 width, u32 height) {
   if (_app == nullptr || _app->gpu_device == nullptr) {
-    return (GPU_Texture){0};
+    return err(GPU_Texture_Create_Result, GPU_Error_Uninitialized_Backend);
   }
 
   GPU_Texture texture = {
@@ -921,13 +986,17 @@ GPU_Texture make_gpu_depth_texture(u32 width, u32 height) {
         .mipLevelCount = 1,
         .sampleCount = 1,
         .dimension = WGPUTextureDimension_2D,
-        .format = WGPUTextureFormat_Depth24Plus,
+        .format = (WGPUTextureFormat)texture.format,
         .usage =
             WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding,
       }
   );
 
-  return texture;
+  if (texture.handle == nullptr) {
+    return err(GPU_Texture_Create_Result, GPU_Error_Failed_To_Create_Texture);
+  }
+
+  return ok(GPU_Texture_Create_Result, texture);
 }
 
 void destroy_gpu_texture(GPU_Texture texture) {

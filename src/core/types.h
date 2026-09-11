@@ -3,8 +3,10 @@
 
 #include <assert.h>
 
-typedef char bool8;
-typedef unsigned int bool32;
+typedef unsigned _BitInt(1) bool8;
+typedef _BitInt(32) bool32;
+static_assert(sizeof(bool8) == 1, "bool8 must be 1 byte");
+static_assert(sizeof(bool32) == 4, "bool32 must be 4 byte");
 
 typedef void *rawptr;
 typedef __UINTPTR_TYPE__ uintptr;
@@ -17,17 +19,56 @@ typedef unsigned char u8;
 typedef unsigned short int u16;
 typedef unsigned int u32;
 typedef unsigned long long int u64;
+static_assert(sizeof(byte) == 1, "byte must be 1 byte");
+static_assert(sizeof(u64) == 8, "byte must be 1 byte");
 
 typedef short int i16;
 typedef int i32;
 typedef long long int i64;
+
 typedef float f32;
+static_assert(sizeof(float) == sizeof(u32));
+static_assert(__FLT_RADIX__ == 2);
+static_assert(__FLT_MANT_DIG__ == 24);
+static_assert(__FLT_MAX_EXP__ == 128);
+static_assert(__DBL_MANT_DIG__ == 53);
+
+#ifdef __FAST_MATH__
+#error ("ffast-math not supported")
+#endif
+
 typedef double f64;
 
-typedef u32 utf8_char;
+typedef unsigned _BitInt(32) utf8_char;
+static_assert(sizeof(utf8_char) == 4, "utf8_char must be 1 byte");
 
 typedef __SIZE_TYPE__ usize;
 static_assert(sizeof(usize) == sizeof(void *), "usize must be pointer-sized");
+
+typedef enum Type_Kind : u16 {
+  Type_Kind_String,
+  Type_Kind_Cstring,
+  Type_Kind_Char,
+  Type_Kind_Bool8,
+  Type_Kind_Bool32,
+  Type_Kind_Byte,
+  Type_Kind_U8,
+  Type_Kind_U16,
+  Type_Kind_U32,
+  Type_Kind_U64,
+  Type_Kind_Usize,
+  Type_Kind_I16,
+  Type_Kind_I32,
+  Type_Kind_I64,
+  Type_Kind_F32,
+  Type_Kind_F64,
+  Type_Kind_Struct,
+} Type_Kind;
+
+typedef struct Type_Info {
+  Type_Kind kind;
+  const char *name;
+} Type_Info;
 
 #define countof(array) (sizeof(array) / sizeof((array)[0]))
 #define concat_impl_(a, b) a##b

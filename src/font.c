@@ -59,7 +59,7 @@ init_font_atlas_from_file(Font_Atlas *font, String path, Allocator allocator) {
 
   stbtt_ok = stbtt_PackBegin(
       &font->pack_ctx,
-      font->cpu_texture,
+      (unsigned char *)font->cpu_texture,
       ATLAS_DIMENSION,
       ATLAS_DIMENSION,
       0,
@@ -73,15 +73,16 @@ init_font_atlas_from_file(Font_Atlas *font, String path, Allocator allocator) {
     return Font_Error_Failed_To_Load_Font;
   }
 
-  font->gpu_texture = make_gpu_texture(&(GPU_Texture_Create_Info){
+  font->gpu_texture = unwrap(make_gpu_texture(&(GPU_Texture_Create_Info){
+    .kind = GPU_Texture_Kind_2D,
     .space = GPU_Texture_Space_sRGB,
-    .kind = GPU_Texture_Create_Info_Empty,
+    .source = GPU_Texture_Source_Empty,
     .empty = {
       .width = ATLAS_DIMENSION,
       .height = ATLAS_DIMENSION,
       .channels = 4,
     },
-  });
+  }));
   if (!gpu_texture_is_valid(font->gpu_texture)) {
     allocator.free(allocator, font->cpu_texture);
     allocator.free(allocator, font->cpu_rgba_texture);
@@ -127,7 +128,7 @@ font_atlas_load_font_size(Font_Atlas *font, f32 size, Allocator allocator) {
 
   i32 stbtt_ok = stbtt_PackFontRange(
       &font->pack_ctx,
-      font->cpu_raw_data,
+      (unsigned char *)font->cpu_raw_data,
       0,
       size,
       FIRST_ASCII_CODEPOINT,
@@ -148,7 +149,7 @@ font_atlas_load_font_size(Font_Atlas *font, f32 size, Allocator allocator) {
   }
 
   stbtt_fontinfo font_info;
-  if (!stbtt_InitFont(&font_info, font->cpu_raw_data, 0)) {
+  if (!stbtt_InitFont(&font_info, (unsigned char *)font->cpu_raw_data, 0)) {
     return err(
         Font_Atlas_Entry_Load_Result, Font_Error_Failed_To_Load_Font_Size
     );

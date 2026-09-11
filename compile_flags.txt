@@ -13,6 +13,8 @@
 -Wpedantic
 -Wshadow
 -Wconversion
+-Wenum-conversion
+-Wenum-compare
 -Wnull-dereference
 -Wdouble-promotion
 -Wformat=2

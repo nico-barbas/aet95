@@ -1127,7 +1127,7 @@ static void code_editor_view(Window_Data *window) {
       }
 
       element_label((&(Element_Create_Info){
-        .text = from_c_str(">"),
+        .text = from_cstring(">"),
         .style = {
           .base.linears.font_size = 18.f,
           .base.colors.text = ISW_BG0,
@@ -1195,7 +1195,7 @@ static void code_editor_view(Window_Data *window) {
     },
   })) {
     element_label((&(Element_Create_Info){
-      .text = from_c_str("compilation successful.."),
+      .text = from_cstring("compilation successful.."),
       .style = {
         .base.linears.font_size = 18.f,
         .base.colors.text = ISW_BG0,

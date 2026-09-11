@@ -259,6 +259,18 @@ u32 app_key_press_count(Keyboard_Key key);
 Text_Array app_chars_pressed();
 
 /////////////////////////////
+/////////////////////////////
+// GPU abstraction
+/////////////////////////////
+/////////////////////////////
+typedef enum GPU_Error {
+  GPU_Error_None,
+  GPU_Error_Uninitialized_Backend,
+  GPU_Error_Failed_To_Create_Texture,
+  GPU_Error_Invalid_Texture_Data,
+} GPU_Error;
+
+/////////////////////////////
 // GPU Buffer management
 /////////////////////////////
 typedef u32 GPU_Buffer_Usage;
@@ -322,35 +334,47 @@ typedef enum GPU_Texture_Format {
   GPU_Texture_Format_Depth24Plus = 0x00000012,
 } GPU_Texture_Format;
 
+typedef enum GPU_Texture_Kind {
+  GPU_Texture_Kind_2D,
+  GPU_Texture_Kind_2D_Array,
+} GPU_Texture_Kind;
+
+// NOTE(nico): One fat struct with room to grow for 3d and cubemaps
 typedef struct GPU_Texture {
+  GPU_Texture_Kind kind;
   WGPUTexture handle;
   GPU_Texture_Format format;
   GPU_Texture_Space space;
   u32 width;
   u32 height;
+  u32 depth;
+  u32 layers;
   u32 channels;
 } GPU_Texture;
 
+// NOTE(nico): I'm not a fan of the shape of this struct
 typedef struct GPU_Texture_Create_Info {
+  GPU_Texture_Kind kind;
   GPU_Texture_Space space;
-  enum {
-    GPU_Texture_Create_Info_Empty,
-    GPU_Texture_Create_Info_File,
-    GPU_Texture_Create_Info_Memory,
-    GPU_Texture_Create_Info_Raw_Memory,
-  } kind;
+  u32 layers;
+  enum GPU_Texture_Source {
+    GPU_Texture_Source_Empty,
+    GPU_Texture_Source_File,
+    GPU_Texture_Source_Memory,
+    GPU_Texture_Source_Raw_Memory,
+  } source;
   union {
-    String file_path;
+    String file;
     struct {
       byte *data;
       u32 width;
       u32 height;
-      u64 channels;
+      u32 channels;
     } raw;
     struct {
       u32 width;
       u32 height;
-      u64 channels;
+      u32 channels;
     } empty;
   };
 } GPU_Texture_Create_Info;
@@ -361,6 +385,8 @@ typedef struct GPU_Texture_Write_Info {
   u32 width;
   u32 height;
 } GPU_Texture_Write_Info;
+
+typedef Result(GPU_Texture, GPU_Error) GPU_Texture_Create_Result;
 
 typedef enum GPU_Sampler_Filter {
   GPU_Sampler_Filter_Nearest = 0x00000001,
@@ -383,8 +409,8 @@ typedef struct GPU_Sampler_Create_Info {
   GPU_Sampler_Wrap wrap;
 } GPU_Sampler_Create_Info;
 
-GPU_Texture make_gpu_texture(GPU_Texture_Create_Info *info);
-GPU_Texture make_gpu_depth_texture(u32 width, u32 height);
+GPU_Texture_Create_Result make_gpu_texture(GPU_Texture_Create_Info *info);
+GPU_Texture_Create_Result make_gpu_depth_texture(u32 width, u32 height);
 void destroy_gpu_texture(GPU_Texture texture);
 
 bool32 gpu_texture_is_valid(GPU_Texture texture);

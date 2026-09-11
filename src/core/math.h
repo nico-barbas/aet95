@@ -6,7 +6,12 @@
 //////////////////////////////////
 // Other math
 //////////////////////////////////
+u32 f32_to_u32(f32 value);
+f32 u32_to_f32(u32 bits);
+u64 f64_to_u64(f64 value);
+f64 u64_to_f64(u64 bits);
 i32 sign_extend_i32(u32 value, u32 bits);
+
 u64 hash_fnv1a(const void *data, usize size);
 
 //////////////////////////////////
@@ -29,6 +34,9 @@ f32 rand_f32(void);
 i32 clamp_i32(i32 v, i32 min, i32 max);
 i32 min_i32(i32 a, i32 b);
 i32 max_i32(i32 a, i32 b);
+i32 abs_i32(i32 v);
+
+i64 abs_i64(i64 v);
 
 u32 max_u32(u32 a, u32 b);
 u32 min_u32(u32 a, u32 b);
@@ -47,6 +55,7 @@ typedef enum Safe_Math_Error {
   Safe_Math_Error_None,
   Safe_Math_Error_Signed_Overflow,
   Safe_Math_Error_Unsigned_Overflow,
+  Safe_Math_Error_Unsigned_Underflow,
 } Safe_Math_Error;
 
 typedef Result(i64, Safe_Math_Error) Safe_Math_I64_Result;
@@ -56,6 +65,7 @@ Safe_Math_I64_Result safe_add_i64(i64 a, i64 b);
 Safe_Math_I64_Result safe_mul_i64(i64 a, i64 b);
 
 Safe_Math_U64_Result safe_add_u64(u64 a, u64 b);
+Safe_Math_U64_Result safe_sub_u64(u64 a, u64 b);
 Safe_Math_U64_Result safe_mul_u64(u64 a, u64 b);
 
 //////////////////////////////////

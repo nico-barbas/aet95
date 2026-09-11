@@ -3,6 +3,7 @@
 #include "asm.c"
 #include "core/allocator.c"
 #include "core/camera.c"
+#include "core/fmt.c"
 #include "core/imgui.c"
 #include "core/io.c"
 #include "core/log.c"

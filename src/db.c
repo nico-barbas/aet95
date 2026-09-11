@@ -59,7 +59,7 @@ bool32 init_database(Renderer *renderer, Allocator allocator) {
 
   Font_Error font_err = init_font_atlas_from_file(
       &_db.font_table[Font_ID_IBMPlex_Mono],
-      from_c_str("assets/fonts/IBMPlexMono-Regular.ttf"),
+      from_cstring("assets/fonts/IBMPlexMono-Regular.ttf"),
       allocator
   );
   assert(font_err == Font_Error_None);

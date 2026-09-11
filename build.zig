@@ -10,6 +10,8 @@ const c_flags = [_][]const u8{
     "-Wpedantic",
     "-Wshadow",
     "-Wconversion",
+    "-Wenum-conversion",
+    "-Wenum-compare",
     "-Wnull-dereference",
     "-Wdouble-promotion",
     "-Wimplicit-fallthrough",

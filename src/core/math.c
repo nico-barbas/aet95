@@ -9,6 +9,30 @@
 //////////////////////////////////
 // Other math
 //////////////////////////////////
+u32 f32_to_u32(f32 value) {
+  u32 out;
+  memcpy(&out, &value, sizeof(out));
+  return out;
+}
+
+f32 u32_to_f32(u32 bits) {
+  f32 out;
+  memcpy(&out, &bits, sizeof(out));
+  return out;
+}
+
+u64 f64_to_u64(f64 value) {
+  u64 out;
+  memcpy(&out, &value, sizeof(out));
+  return out;
+}
+
+f64 u64_to_f64(u64 bits) {
+  f64 out;
+  memcpy(&out, &bits, sizeof(out));
+  return out;
+}
+
 i32 sign_extend_i32(u32 value, u32 bits) {
   u32 shift = 32 - bits;
   return (i32)(value << shift) >> shift;
@@ -93,6 +117,14 @@ i32 max_i32(i32 a, i32 b) {
   return a > b ? a : b;
 }
 
+i32 abs_i32(i32 v) {
+  return v < 0 ? -v : v;
+}
+
+i64 abs_i64(i64 v) {
+  return v < 0 ? -v : v;
+}
+
 f32 rand_f32(void) {
   // return ((f32)rand() / (f32)(RAND_MAX));
   return 0.f;
@@ -156,6 +188,13 @@ Safe_Math_I64_Result safe_mul_i64(i64 a, i64 b) {
 Safe_Math_U64_Result safe_add_u64(u64 a, u64 b) {
   if (a > ((u64)-1) - b) {
     return err(Safe_Math_U64_Result, Safe_Math_Error_Unsigned_Overflow);
+  }
+  return ok(Safe_Math_U64_Result, a + b);
+}
+
+Safe_Math_U64_Result safe_sub_u64(u64 a, u64 b) {
+  if (b > a) {
+    return err(Safe_Math_U64_Result, Safe_Math_Error_Unsigned_Underflow);
   }
   return ok(Safe_Math_U64_Result, a + b);
 }

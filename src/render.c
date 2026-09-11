@@ -34,7 +34,7 @@ void init_renderer(
     Renderer *renderer, i32 render_w, i32 render_h, Allocator allocator
 ) {
   renderer->depth_texture =
-      make_gpu_depth_texture((u32)render_w, (u32)render_h);
+      unwrap(make_gpu_depth_texture((u32)render_w, (u32)render_h));
 
   renderer->geometry_buffer = make_gpu_buffer(&(GPU_Buffer_Create_Info){
     .usage = GPU_Buffer_Usage_Vertex | GPU_Buffer_Usage_Index |
@@ -67,7 +67,7 @@ void init_renderer(
         .shader_source =
             {
               .kind = GPU_Shader_Source_Raw,
-              .data = from_c_str(default_shader),
+              .data = from_cstring(default_shader),
             },
         .vertex_attributes = vertex_attrs,
         .vertex_attribute_count = 3,
@@ -113,11 +113,13 @@ void init_renderer(
       make_array(renderer->instances_data, INSTANCE_CAP, allocator);
 
   byte white_pixel[4] = {255, 255, 255, 255};
-  GPU_Texture white_texture = make_gpu_texture(&(GPU_Texture_Create_Info){
-    .space = GPU_Texture_Space_sRGB,
-    .kind = GPU_Texture_Create_Info_Raw_Memory,
-    .raw = {.data = white_pixel, .width = 1, .height = 1, .channels = 4},
-  });
+  GPU_Texture white_texture =
+      unwrap(make_gpu_texture(&(GPU_Texture_Create_Info){
+        .kind = GPU_Texture_Kind_2D,
+        .space = GPU_Texture_Space_sRGB,
+        .source = GPU_Texture_Source_Raw_Memory,
+        .raw = {.data = white_pixel, .width = 1, .height = 1, .channels = 4},
+      }));
   assert(gpu_texture_is_valid(white_texture));
   open_map_set(renderer->texture_cache, DEFAULT_MATERIAL_HANDLE, white_texture);
 
@@ -281,7 +283,7 @@ static GPU_Texture
 texture_load_gltf(Renderer *renderer, cgltf_texture *ctex, String root_path) {
   // TODO(nico): validate the type
   assert(ctex != nullptr && ctex->image->uri);
-  usize uri_len = c_str_len(ctex->image->uri);
+  usize uri_len = cstring_len(ctex->image->uri);
   u32 uri_hash = (u32)hash_fnv1a(ctex->image->uri, uri_len);
 
   GPU_Texture *existing_texture =
@@ -295,11 +297,12 @@ texture_load_gltf(Renderer *renderer, cgltf_texture *ctex, String root_path) {
   builder_write(&b, "%s/%ss", root_path, ctex->image->uri);
   builder_terminate_string(&b);
 
-  GPU_Texture texture = make_gpu_texture(&(GPU_Texture_Create_Info){
+  GPU_Texture texture = unwrap(make_gpu_texture(&(GPU_Texture_Create_Info){
+    .kind = GPU_Texture_Kind_2D,
     .space = GPU_Texture_Space_sRGB,
-    .kind = GPU_Texture_Create_Info_File,
-    .file_path = builder_get_string(&b),
-  });
+    .source = GPU_Texture_Source_File,
+    .file = builder_get_string(&b),
+  }));
   open_map_set(renderer->texture_cache, uri_hash, texture);
 
   return texture;
@@ -313,7 +316,7 @@ static Material_Create_Result material_load_gltf(
 ) {
   // NOTE(nico): We need the name to hash everything
   assert(cmat->name != nullptr);
-  usize name_len = c_str_len(cmat->name);
+  usize name_len = cstring_len(cmat->name);
   u32 name_hash = (u32)hash_fnv1a(
       cmat->name, name_len
   ); // TODO(nico): the cast might be a problem
@@ -488,7 +491,7 @@ Model_Create_Result model_load_gltf_from_file(
   cgltf_mesh *mesh = nullptr;
   for (usize i = 0; i < data->nodes_count; i += 1) {
     cgltf_node *node = &data->nodes[i];
-    String name = from_c_str(node->name);
+    String name = from_cstring(node->name);
     if (string_equal(name, info->model_name) && node->mesh != nullptr) {
       mesh = node->mesh;
       break;
@@ -688,7 +691,7 @@ void init_debug_renderer(
         .shader_source =
             {
               .kind = GPU_Shader_Source_Raw,
-              .data = from_c_str(debug_shader),
+              .data = from_cstring(debug_shader),
             },
         .vertex_attributes = vertex_attrs,
         .vertex_attribute_count = 2,

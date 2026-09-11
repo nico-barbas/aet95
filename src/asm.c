@@ -491,7 +491,7 @@ Aet_Assembly_Token_Result aet_assembler_next_token(String_Reader *reader) {
           .kind = Aet_Assembly_Token_Kind_EOF,
           .start = reader->current,
           .end = reader->current,
-          .lexeme = from_c_str(""),
+          .lexeme = from_cstring(""),
         })
     );
   }

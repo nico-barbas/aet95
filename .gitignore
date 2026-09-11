@@ -3,6 +3,8 @@
 zig-out
 zig-pkg
 
+.probe/
+
 # Editor and OS files
 .vscode/
 .idea/

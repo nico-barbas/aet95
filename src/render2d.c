@@ -63,31 +63,34 @@ void init_renderer_2d(
 
   byte white_pixel[4] = {255, 255, 255, 255};
   renderer->textures[Renderer2D_Atlas_Blank] =
-      make_gpu_texture(&(GPU_Texture_Create_Info){
+      unwrap(make_gpu_texture(&(GPU_Texture_Create_Info){
+        .kind = GPU_Texture_Kind_2D,
         .space = GPU_Texture_Space_sRGB,
-        .kind = GPU_Texture_Create_Info_Raw_Memory,
+        .source = GPU_Texture_Source_Raw_Memory,
         .raw = {.data = white_pixel, .width = 1, .height = 1, .channels = 4},
-      });
+      }));
 
   // NOTE(nico): temp code
   renderer->textures[Renderer2D_Atlas_Font] =
       _db.font_table[font_id].gpu_texture;
 
   // NOTE(nico): hack, but I want to get it to work
-  if (string_equal(sprite_atlas_path, from_c_str(""))) {
+  if (string_equal(sprite_atlas_path, from_cstring(""))) {
     renderer->textures[Renderer2D_Atlas_Sprites] =
-        make_gpu_texture(&(GPU_Texture_Create_Info){
+        unwrap(make_gpu_texture(&(GPU_Texture_Create_Info){
+          .kind = GPU_Texture_Kind_2D,
           .space = GPU_Texture_Space_sRGB,
-          .kind = GPU_Texture_Create_Info_Raw_Memory,
+          .source = GPU_Texture_Source_Raw_Memory,
           .raw = {.data = white_pixel, .width = 1, .height = 1, .channels = 4},
-        });
+        }));
   } else {
     renderer->textures[Renderer2D_Atlas_Sprites] =
-        make_gpu_texture(&(GPU_Texture_Create_Info){
+        unwrap(make_gpu_texture(&(GPU_Texture_Create_Info){
+          .kind = GPU_Texture_Kind_2D,
           .space = GPU_Texture_Space_sRGB,
-          .kind = GPU_Texture_Create_Info_File,
-          .file_path = sprite_atlas_path,
-        });
+          .source = GPU_Texture_Source_File,
+          .file = sprite_atlas_path,
+        }));
     ;
   }
 
@@ -113,7 +116,7 @@ void init_renderer_2d(
         .shader_source =
             {
               .kind = GPU_Shader_Source_Raw,
-              .data = from_c_str(default_shader_2d),
+              .data = from_cstring(default_shader_2d),
             },
         .vertex_attributes = vertex_attrs,
         .vertex_attribute_count = 3,
@@ -359,9 +362,7 @@ void draw_rect_outline(
 
   draw_rect(
       renderer,
-      (Rectangle){
-        .x = rect.x, .y = rect.y, .width = rect.width, .height = t
-      },
+      (Rectangle){.x = rect.x, .y = rect.y, .width = rect.width, .height = t},
       color
   );
   draw_rect(

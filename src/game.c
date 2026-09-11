@@ -52,7 +52,7 @@ static bool32 parse_window_backend_env(App_Window_Backend *out) {
 // Actual game code
 ////////////////////////////////////
 void init_game(void) {
-  _game.version = from_c_str("0.0.1-a");
+  _game.version = from_cstring("0.0.1-a");
   _game.global_allocator = heap_allocator();
 
   Allocation_Result frame_mem = _game.global_allocator.alloc(
@@ -67,7 +67,7 @@ void init_game(void) {
     .app = &_game.app,
     .window_width = STARTUP_WINDOW_WIDTH,
     .window_height = STARTUP_WINDOW_HEIGHT,
-    .window_title = from_c_str("p59"),
+    .window_title = from_cstring("p59"),
     .logger = console_logger(Log_Level_Debug),
   };
   assert(parse_window_backend_env(&info.window_backend));
@@ -97,7 +97,7 @@ void init_game(void) {
   init_renderer_2d(
       &_game.renderer_2d,
       Font_ID_IBMPlex_Mono,
-      from_c_str(""),
+      from_cstring(""),
       _game.global_allocator
   );
 
@@ -114,7 +114,7 @@ void init_game(void) {
   );
 
   Aet_Program program = unwrap(
-      aet_assemble(from_c_str("loadw r0, rx0, -32768"), _game.frame_allocator)
+      aet_assemble(from_cstring("loadw r0, rx0, -32768"), _game.frame_allocator)
   );
 
   aet_cpu_load_program(&machine.cpu, program);
@@ -123,7 +123,7 @@ void init_game(void) {
   push_view_inbound_event((View_Inbound_Event){
     .kind = View_Inbound_Event_Open_Window,
     .open_window = (Window_Open_Info){
-      .title = from_c_str("aet::workbench"),
+      .title = from_cstring("aet::workbench"),
       .kind = Window_Kind_Code_Editor,
       .position = vec2(100, 100),
       .width = 400,
@@ -134,7 +134,7 @@ void init_game(void) {
   // push_view_inbound_event((View_Inbound_Event){
   //   .kind = View_Inbound_Event_Open_Window,
   //   .open_window = (Window_Open_Info){
-  //     .title = from_c_str("code::builder"),
+  //     .title = from_cstring("code::builder"),
   //     .kind = Window_Kind_Code_Editor,
   //     .position = vec2(700, 100),
   //     .width = 400,
@@ -443,7 +443,7 @@ Scene_Error init_entity(Scene *scene, Entity *entity, Allocator allocator) {
     }
 
     Aet_Assembler_Result assembler_result =
-        aet_assemble(from_c_str(tmp_program), allocator);
+        aet_assemble(from_cstring(tmp_program), allocator);
     if (!assembler_result.ok) {
       return Scene_Error_Failed_To_Init_Entity;
     }

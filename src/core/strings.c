@@ -5,10 +5,96 @@
 #include "core/types.h"
 
 #include <assert.h>
-#include <math.h>
 #include <stdarg.h>
-#include <stdlib.h>
 #include <string.h>
+
+static const i32 pow10_i32[] = {
+  1,
+  10,
+  100,
+  1000,
+  10000,
+  100000,
+  1000000,
+  10000000,
+  100000000,
+  1000000000,
+};
+
+static const i64 pow10_i64[] = {
+  1,
+  10,
+  100,
+  1000,
+  10000,
+  100000,
+  1000000,
+  10000000,
+  100000000,
+  1000000000,
+  10000000000,
+  100000000000,
+  1000000000000,
+  10000000000000,
+  100000000000000,
+  1000000000000000,
+  10000000000000000,
+  100000000000000000,
+  1000000000000000000,
+};
+
+static const u64 pow10_u64[] = {
+  1,
+  10,
+  100,
+  1000,
+  10000,
+  100000,
+  1000000,
+  10000000,
+  100000000,
+  1000000000,
+  10000000000,
+  100000000000,
+  1000000000000,
+  10000000000000,
+  100000000000000,
+  1000000000000000,
+  10000000000000000,
+  100000000000000000,
+  1000000000000000000,
+  10000000000000000000ULL,
+};
+
+static const f32 pow10_f32[] = {
+  1.f,
+  10.f,
+  100.f,
+  1000.f,
+  10000.f,
+  100000.f,
+  1000000.f,
+  10000000.f,
+  100000000.f,
+  1000000000.f,
+  10000000000.f,
+  100000000000.f,
+};
+
+static const f64 pow10_f64[] = {
+  1.,
+  10.,
+  100.,
+  1000.,
+  10000.,
+  100000.,
+  1000000.,
+  10000000.,
+  100000000.,
+  1000000000.,
+  10000000000.,
+  100000000000.,
+};
 
 ////////////////////////////////////////
 // String operations
@@ -21,19 +107,19 @@ void delete_string(String str, Allocator allocator) {
   allocator.free(allocator, str.ptr);
 }
 
-usize c_str_len(const char *c_str) {
+usize cstring_len(const char *cstring) {
   usize len = 0;
-  while (c_str[len] != '\0') {
+  while (cstring[len] != '\0') {
     len += 1;
   }
 
   return len;
 }
 
-String from_c_str(const char *str) {
+String from_cstring(const char *str) {
   return (String){
     .data = str,
-    .len = c_str_len(str),
+    .len = cstring_len(str),
   };
 }
 
@@ -422,11 +508,8 @@ void builder_reset(String_Builder *b) {
   b->buf[0] = '\0';
 }
 
-// QUALITY(nico): 8/10
-// - Handling of the last part of the format string is not the best
-// - Doesn't really handle errors if too may arguments are passed through
 bool32 builder_write(String_Builder *b, const char *fmt_str, ...) {
-  String fmt = from_c_str(fmt_str);
+  String fmt = from_cstring(fmt_str);
   String_Reader reader = (String_Reader){
     .input = fmt,
     .current = 0,
@@ -509,7 +592,7 @@ bool32 builder_write(String_Builder *b, const char *fmt_str, ...) {
     } break;
     case String_Builder_Format_C_String: {
       char *val = va_arg(arg_ptr, char *);
-      builder_write_string(b, from_c_str(val));
+      builder_write_string(b, from_cstring(val));
     } break;
     case String_Builder_Format_String: {
       String val = va_arg(arg_ptr, String);
@@ -527,8 +610,8 @@ bool32 builder_write(String_Builder *b, const char *fmt_str, ...) {
   return true;
 }
 
-void builder_write_i32(String_Builder *b, i32 n) {
-  if (n == 0) {
+void builder_write_i32(String_Builder *b, i32 v) {
+  if (v == 0) {
     if (b->len >= b->cap) {
       return;
     }
@@ -537,7 +620,7 @@ void builder_write_i32(String_Builder *b, i32 n) {
     return;
   }
 
-  if (n < 0) {
+  if (v < 0) {
     if (b->len >= b->cap) {
       return;
     }
@@ -545,24 +628,25 @@ void builder_write_i32(String_Builder *b, i32 n) {
     b->buf[b->len] = '-';
     b->len += 1;
   }
-  n = abs(n);
+  u32 n = v < 0 ? 0 - (u32)v : (u32)v;
 
-  i32 count = 0;
-  i32 rem = n;
+  u32 count = 0;
+  u32 rem = n;
   while (rem > 0) {
     count += 1;
     rem /= 10;
   }
 
   rem = n;
-  i32 divisor = (i32)(powf(10, (f32)(count - 1)));
-  for (i32 i = 0; i < count; i += 1) {
+  u32 divisor = (u32)pow10_i32[count - 1];
+  // i32 divisor = (i32)(powf(10, (f32)(count - 1)));
+  for (u32 i = 0; i < count; i += 1) {
     if (b->len >= b->cap) {
       builder_terminate_string(b);
       return;
     }
 
-    i32 digit = rem / divisor;
+    u32 digit = rem / divisor;
     b->buf[b->len] = (char)(48 + digit);
     b->len += 1;
     rem %= divisor;
@@ -570,14 +654,149 @@ void builder_write_i32(String_Builder *b, i32 n) {
   }
 }
 
-void builder_write_f32(String_Builder *b, f32 f, i32 precision) {
-  builder_write_i32(b, (i32)f);
-
-  i32 fract = abs((i32)((f - (f32)((i32)f)) * (powf(10.0f, (f32)precision))));
-  if (fract > 0) {
-    builder_write_char(b, '.');
-    builder_write_i32(b, fract);
+void builder_write_i64(String_Builder *b, i64 v) {
+  if (v == 0) {
+    if (b->len >= b->cap) {
+      return;
+    }
+    b->buf[b->len] = '0';
+    b->len += 1;
+    return;
   }
+
+  if (v < 0) {
+    if (b->len >= b->cap) {
+      return;
+    }
+
+    b->buf[b->len] = '-';
+    b->len += 1;
+  }
+  u64 n = v < 0 ? 0 - (u64)v : (u64)v;
+
+  u64 count = 0;
+  u64 rem = n;
+  while (rem > 0) {
+    count += 1;
+    rem /= 10;
+  }
+
+  rem = n;
+  u64 divisor = (u64)pow10_i64[count - 1];
+  // i64 divisor = (i64)(powf(10, (f32)(count - 1)));
+  for (u64 i = 0; i < count; i += 1) {
+    if (b->len >= b->cap) {
+      builder_terminate_string(b);
+      return;
+    }
+
+    u64 digit = rem / divisor;
+    b->buf[b->len] = (char)(48 + digit);
+    b->len += 1;
+    rem %= divisor;
+    divisor /= 10;
+  }
+}
+
+void builder_write_u64(String_Builder *b, u64 u) {
+  if (u == 0) {
+    if (b->len >= b->cap) {
+      return;
+    }
+    b->buf[b->len] = '0';
+    b->len += 1;
+    return;
+  }
+
+  u64 count = 0;
+  u64 rem = u;
+  while (rem > 0) {
+    count += 1;
+    rem /= 10;
+  }
+
+  rem = u;
+  u64 divisor = (u64)pow10_u64[count - 1];
+  for (u64 i = 0; i < count; i += 1) {
+    if (b->len >= b->cap) {
+      builder_terminate_string(b);
+      return;
+    }
+
+    u64 digit = rem / divisor;
+    b->buf[b->len] = (char)(48 + digit);
+    b->len += 1;
+    rem %= divisor;
+    divisor /= 10;
+  }
+}
+
+void builder_write_f32(String_Builder *b, f32 f, u32 precision) {
+  u32 bits = f32_to_u32(f);
+  bool8 neg = bits >> 31;
+  u64 whole = (u64)(neg ? -f : f);
+
+  if (neg) {
+    builder_write_char(b, '-');
+  }
+  builder_write_u64(b, whole);
+
+  u32 _precision = min_u32(precision, countof(pow10_f32) - 1);
+  u64 frac = (u64)(((neg ? -f : f) - (f32)whole) * pow10_f32[_precision]);
+
+  char buf[countof(pow10_f32)];
+  u32 n = _precision;
+
+  if (b->len >= b->cap) {
+    return;
+  }
+
+  while (n > 0) {
+    n -= 1;
+    buf[n] = (char)('0' + frac % 10);
+    frac /= 10;
+  }
+
+  if (b->len < b->cap && _precision > 0) {
+    builder_write_char(b, '.');
+  }
+  usize _len = min_usize(_precision, b->cap - b->len);
+  memcpy(b->buf + b->len, buf, _len);
+  b->len += _len;
+}
+
+void builder_write_f64(String_Builder *b, f64 f, u32 precision) {
+  u64 bits = f64_to_u64(f);
+  bool8 neg = bits >> 63;
+  u64 whole = (u64)(neg ? -f : f);
+
+  if (neg) {
+    builder_write_char(b, '-');
+  }
+  builder_write_u64(b, whole);
+
+  u32 _precision = min_u32(precision, countof(pow10_f64) - 1);
+  u64 frac = (u64)(((neg ? -f : f) - (f64)whole) * pow10_f64[_precision]);
+
+  char buf[countof(pow10_f64)];
+  u32 n = _precision;
+
+  if (b->len >= b->cap) {
+    return;
+  }
+
+  while (n > 0) {
+    n -= 1;
+    buf[n] = (char)('0' + frac % 10);
+    frac /= 10;
+  }
+
+  if (b->len < b->cap && _precision > 0) {
+    builder_write_char(b, '.');
+  }
+  usize _len = min_usize(_precision, b->cap - b->len);
+  memcpy(b->buf + b->len, buf, _len);
+  b->len += _len;
 }
 
 void builder_write_char(String_Builder *b, char c) {
@@ -590,25 +809,31 @@ void builder_write_char(String_Builder *b, char c) {
   b->len += 1;
 }
 
-void builder_write_raw_string(String_Builder *b, char *buf, usize size) {
-  for (usize i = 0; i < size; i += 1) {
-    if (b->len >= b->cap) {
-      builder_terminate_string(b);
-      return;
-    }
-    b->buf[b->len] = buf[i];
-    b->len += 1;
+// NOTE(nico): Truncation is acceptable here. It is was the previous loop did
+// anyway. Null termination on max cap is debatable though
+void builder_write_cstring(String_Builder *b, const char *buf, usize len) {
+  if (b->len >= b->cap) {
+    return;
+  }
+  usize _len = min_usize(len, b->cap - b->len);
+
+  memcpy(b->buf + b->len, buf, _len);
+  b->len += _len;
+  if (_len < len) {
+    builder_terminate_string(b);
   }
 }
 
 void builder_write_string(String_Builder *b, String str) {
-  for (usize i = 0; i < str.len; i += 1) {
-    if (b->len >= b->cap) {
-      builder_terminate_string(b);
-      return;
-    }
-    b->buf[b->len] = str.data[i];
-    b->len += 1;
+  if (b->len >= b->cap) {
+    return;
+  }
+  usize _len = min_usize(str.len, b->cap - b->len);
+
+  memcpy(b->buf + b->len, str.data, _len);
+  b->len += _len;
+  if (_len < str.len) {
+    builder_terminate_string(b);
   }
 }
 

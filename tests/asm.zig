@@ -33,7 +33,7 @@ fn assemblerError(code: c_int) AssemblerError {
 
 pub fn assemble(source: [*:0]const u8) AssemblerError!c.Aet_Program {
     const result = c.aet_assemble(
-        c.from_c_str(source),
+        c.from_cstring(source),
         c.heap_allocator(),
     );
     return aet.value(result) orelse assemblerError(aet.errorCode(result).?);

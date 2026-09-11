@@ -36,8 +36,8 @@ typedef Result(String, Allocation_Error) String_Result;
 
 void delete_string(String str, Allocator allocator);
 
-usize c_str_len(const char *c_str);
-String from_c_str(const char *str);
+usize cstring_len(const char *c_str);
+String from_cstring(const char *str);
 String string_slice(String src, usize lo, usize hi);
 String_Result string_clone(String str, Allocator allocator);
 String_Result string_clone_terminated(String str, Allocator allocator);
@@ -52,10 +52,13 @@ bool32 string_to_f32(String str, f32 *out);
 String_Builder make_builder_from_buf(char *buf, usize cap);
 void builder_reset(String_Builder *b);
 bool32 builder_write(String_Builder *b, const char *fmt, ...);
-void builder_write_i32(String_Builder *b, i32 n);
-void builder_write_f32(String_Builder *b, f32 f, i32 precision);
+void builder_write_i32(String_Builder *b, i32 v);
+void builder_write_i64(String_Builder *b, i64 v);
+void builder_write_u64(String_Builder *b, u64 u);
+void builder_write_f32(String_Builder *b, f32 f, u32 precision);
+void builder_write_f64(String_Builder *b, f64 f, u32 precision);
 void builder_write_char(String_Builder *b, char c);
-void builder_write_raw_string(String_Builder *b, char *buf, usize size);
+void builder_write_cstring(String_Builder *b, const char *buf, usize size);
 void builder_write_string(String_Builder *b, String str);
 char *builder_terminate_string(String_Builder *b);
 String builder_get_string(String_Builder *b);
