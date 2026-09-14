@@ -628,12 +628,10 @@ exit:
 }
 
 Aet_RAM_Error aet_ram_init(Aet_RAM *ram, usize byte_cap, Allocator allocator) {
-  Allocation_Result alloc = allocator.alloc(allocator, byte_cap * sizeof(byte));
-  if (alloc.err != Allocation_Error_None) {
-    return Aet_RAM_Error_Failed_To_Initialize;
-  }
-
-  ram->raw = (byte *)alloc.allocation;
+  ram->raw = (byte *)or_return(
+      alloc(allocator, byte_cap * sizeof(byte)),
+      Aet_RAM_Error_Failed_To_Initialize
+  );
   ram->cap = byte_cap;
 
   memset(ram->raw, 0, ram->cap);
@@ -641,7 +639,7 @@ Aet_RAM_Error aet_ram_init(Aet_RAM *ram, usize byte_cap, Allocator allocator) {
 }
 
 void aet_ram_destroy(Aet_RAM *ram, Allocator allocator) {
-  allocator.free(allocator, ram->raw);
+  free_(allocator, ram->raw);
 }
 
 Aet_Fault aet_ram_read_byte(Aet_RAM *ram, u32 addr, byte *out) {

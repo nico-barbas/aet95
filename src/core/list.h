@@ -60,12 +60,10 @@ CONCAT(make_, LIST_FUNCTION_PREFIX)(usize cap, Allocator allocator) {
   };
 
   if (cap > 0) {
-    Allocation_Result alloc =
-        allocator.alloc(allocator, cap * sizeof(LIST_TYPE));
-    if (alloc.err != Allocation_Error_None) {
-      return err(MAKE_RESULT, List_Error_Failed_To_Allocate);
-    }
-    list.items = (LIST_TYPE *)alloc.allocation;
+    list.items = (LIST_TYPE *)or_return(
+        alloc(allocator, cap * sizeof(LIST_TYPE)),
+        err(MAKE_RESULT, List_Error_Failed_To_Allocate)
+    );
   }
 
   return ok(MAKE_RESULT, list);
@@ -73,9 +71,9 @@ CONCAT(make_, LIST_FUNCTION_PREFIX)(usize cap, Allocator allocator) {
 
 static inline bool32
 CONCAT(delete_, LIST_FUNCTION_PREFIX)(LIST_TYPE_NAME *list) {
-  Allocation_Result free = list->allocator.free(list->allocator, list->items);
-  if (free.err == Allocation_Error_None ||
-      free.err == Allocation_Error_Op_Not_Implemented) {
+  Allocation_Error free_err = free_(list->allocator, list->items);
+  if (free_err == Allocation_Error_None ||
+      free_err == Allocation_Error_Op_Not_Implemented) {
     list->cap = 0;
     list->len = 0;
     list->items = nullptr;
@@ -93,20 +91,18 @@ LIST_FUNCTION(_reserve)(LIST_TYPE_NAME *list, usize new_cap) {
   }
 
   if (new_cap > 0) {
-    Allocation_Result alloc =
-        list->allocator.alloc(list->allocator, new_cap * sizeof(LIST_TYPE));
-    if (alloc.err != Allocation_Error_None) {
-      return false;
-    }
+    LIST_TYPE *new_data = (LIST_TYPE *)or_return(
+        alloc(list->allocator, new_cap * sizeof(LIST_TYPE)), false
+    );
 
     LIST_TYPE *old_data = list->items;
-    list->items = (LIST_TYPE *)alloc.allocation;
+    list->items = new_data;
     memcpy(list->items, old_data, list->len * sizeof(LIST_TYPE));
 
     // NOTE(nico): Whether it frees successfully or not is not really important
     // here and is an error with the allocator itself, but maybe we could handle
     // it. The one OK status should be NONE and NOT_IMPLEMENTED
-    list->allocator.free(list->allocator, old_data);
+    free_(list->allocator, old_data);
   }
 
   list->cap = new_cap;

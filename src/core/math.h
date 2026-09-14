@@ -29,7 +29,6 @@ f32 floor_f32(f32 val);
 f32 lerp_f32(f32 a, f32 b, f32 t);
 // Returns 0 when val is below edge, 1 otherwise.
 f32 step_f32(f32 edge, f32 val);
-f32 rand_f32(void);
 
 i32 clamp_i32(i32 v, i32 min, i32 max);
 i32 min_i32(i32 a, i32 b);

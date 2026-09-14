@@ -1291,6 +1291,9 @@ aet_disassemble(Aet_Program program, Allocator allocator) {
     builder_write_char(&builder, '\n');
   }
 
-  String output = builder_clone_string(&builder, allocator);
+  String output = or_return(
+      builder_clone_string(&builder, allocator),
+      err(Aet_Disassembler_Result, Aet_Disassembler_Error_Internal_Failure)
+  );
   return ok(Aet_Disassembler_Result, output);
 }

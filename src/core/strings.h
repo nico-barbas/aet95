@@ -62,7 +62,7 @@ void builder_write_cstring(String_Builder *b, const char *buf, usize size);
 void builder_write_string(String_Builder *b, String str);
 char *builder_terminate_string(String_Builder *b);
 String builder_get_string(String_Builder *b);
-String builder_clone_string(String_Builder *b, Allocator allocator);
+String_Result builder_clone_string(String_Builder *b, Allocator allocator);
 
 bool32 string_reader_is_eof(String_Reader *reader);
 char string_reader_advance(String_Reader *reader);

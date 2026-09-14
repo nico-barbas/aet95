@@ -2,11 +2,14 @@
 
 #include "asm.h"
 #include "core/allocator.h"
+#include "core/array.h"
 #include "core/camera.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/platform.h"
+#include "core/rand.h"
 #include "core/strings.h"
+#include "core/types.h"
 #include "db.h"
 #include "hal.h"
 #include "render.h"
@@ -55,12 +58,8 @@ void init_game(void) {
   _game.version = from_cstring("0.0.1-a");
   _game.global_allocator = heap_allocator();
 
-  Allocation_Result frame_mem = _game.global_allocator.alloc(
-      _game.global_allocator, FRAME_ALLOCATOR_SIZE
-  );
-  assert(frame_mem.err == Allocation_Error_None);
-
-  init_arena(&_game.frame_arena, frame_mem.allocation, FRAME_ALLOCATOR_SIZE);
+  byte *frame_mem = unwrap(alloc(_game.global_allocator, FRAME_ALLOCATOR_SIZE));
+  init_arena(&_game.frame_arena, frame_mem, FRAME_ALLOCATOR_SIZE);
   _game.frame_allocator = arena_allocator(&_game.frame_arena);
 
   App_Create_Info info = {
@@ -152,7 +151,7 @@ void close_game(void) {
   destroy_renderer_2d(&_game.renderer_2d);
   destroy_view();
 
-  _game.global_allocator.free(_game.global_allocator, _game.frame_arena.buf);
+  free_(_game.global_allocator, _game.frame_arena.buf);
   close_app(&_game.app);
 }
 
@@ -161,6 +160,9 @@ void close_game(void) {
 ///////////////////////////////////
 void init_scene(Scene *scene, Allocator allocator) {
   (void)allocator;
+  init_pcg32_generator(&scene->voxel_rng_data, 12, 1);
+  scene->voxel_rng = pcg32_generator(&scene->voxel_rng_data);
+
   scene_free_all_entites(scene);
 
   // NOTE(nico): really awkward to initialize
@@ -173,6 +175,26 @@ void init_scene(Scene *scene, Allocator allocator) {
         .machine = {0},
       }
   );
+  scene->tmp_chunk = unwrap(make_voxel_chunk(
+      &(Voxel_Chunk_Create_Info){
+        .width = 10,
+        .height = 10,
+        .depth = 10,
+        .unit_width = 1.f,
+        .unit_height = 1.f,
+        .unit_depth = 1.f
+      },
+      allocator
+  ));
+
+  for (usize i = 0; i < scene->tmp_chunk.data.len; i += 1) {
+    f32 rand = rand_f32(scene->voxel_rng);
+
+    if (rand >= 0.5f) {
+      scene->tmp_chunk.data.items[i].kind = Voxel_Kind_Dirt;
+    }
+  }
+
   scene->orbit_camera = orbit_camera();
 }
 
@@ -768,6 +790,85 @@ f32 motor_device_get_max_speed(Scene *scene, Motor_Device *device) {
   return device->max_speed;
 }
 
+///////////////////////
+// Terrain
+///////////////////////
+Voxel_Chunk_Create_Result
+make_voxel_chunk(Voxel_Chunk_Create_Info *info, Allocator allocator) {
+  if (info->width < 0 || info->height < 0 || info->depth < 0) {
+    return err(Voxel_Chunk_Create_Result, Voxel_Error_Invalid_Create_Info);
+  }
+
+  Voxel_Chunk chunk = {
+    .id = info->id,
+    .width = info->width,
+    .height = info->height,
+    .depth = info->depth,
+    .unit_width = info->unit_width,
+    .unit_height = info->unit_height,
+    .unit_depth = info->unit_depth,
+  };
+
+  chunk.data = make_array(
+      chunk.data, (usize)(chunk.width * chunk.height * chunk.depth), allocator
+  );
+  if (chunk.data.items == nullptr) {
+    return err(Voxel_Chunk_Create_Result, Voxel_Error_Failed_To_Create_Chunk);
+  }
+
+  return ok(Voxel_Chunk_Create_Result, chunk);
+}
+
+Voxel_Index_Result
+voxel_chunk_query_index_from_coord(Voxel_Chunk *chunk, Vec3Int coord) {
+  if (coord.x < 0 || coord.x >= chunk->width || coord.y < 0 ||
+      coord.y >= chunk->height || coord.z < 0 || coord.z >= chunk->depth) {
+    return err(Voxel_Index_Result, Voxel_Error_Invalid_Coord);
+  }
+
+  return ok(
+      Voxel_Index_Result,
+      coord.z * chunk->width * chunk->height + coord.y * chunk->width + coord.x
+  );
+}
+
+static void
+voxel_chunk_render(Voxel_Chunk *chunk, Renderer *renderer, Vec3 origin) {
+  Vec3 unit_scale =
+      vec3(chunk->unit_width, chunk->unit_height, chunk->unit_depth);
+
+  for (i32 z = 0; z < chunk->depth; z += 1) {
+    for (i32 y = 0; y < chunk->height; y += 1) {
+      for (i32 x = 0; x < chunk->width; x += 1) {
+        Vec3Int coord = vec3int(x, y, z);
+        i32 index = unwrap(voxel_chunk_query_index_from_coord(chunk, coord));
+
+        Voxel voxel = array_get(chunk->data, index);
+
+        Vec3 position = vec3_add(
+            vec3_hadamard_mul(vec3((f32)x, (f32)y, (f32)z), unit_scale), origin
+        );
+
+        switch (voxel.kind) {
+        case Voxel_Kind_Air:
+          break;
+        case Voxel_Kind_Dirt:
+          draw_model(
+              renderer,
+              &(Model_Draw_Info){
+                .model = _db.model_table[Model_ID_Default_Cube],
+                .transform =
+                    mat4_from_trs(position, quat_identity(), unit_scale),
+                .color = color(1, 1, 1, 1),
+              }
+          );
+          break;
+        }
+      }
+    }
+  }
+}
+
 /////////////////////////////
 // Main lifecycle hookss
 /////////////////////////////
@@ -834,13 +935,15 @@ void update_game(void) {
     _game.time_accumulator %= FRAME_NS;
   }
 
-  _game.frame_allocator.free_all(_game.frame_allocator);
+  free_all(_game.frame_allocator);
 }
 
 ////////////////////////////////////
 // Rendering
 ////////////////////////////////////
 static void scene_render(Scene *scene, Renderer *renderer) {
+  voxel_chunk_render(&scene->tmp_chunk, renderer, vec3(0, 0, 0));
+
   for (usize i = 0; i < scene->entity_count; i += 1) {
     Entity *entity = &scene->entities[i];
 

@@ -104,7 +104,7 @@ void delete_string(String str, Allocator allocator) {
     return;
   }
 
-  allocator.free(allocator, str.ptr);
+  free_(allocator, str.ptr);
 }
 
 usize cstring_len(const char *cstring) {
@@ -135,12 +135,8 @@ String string_slice(String str, usize lo, usize hi) {
 }
 
 String_Result string_clone(String str, Allocator allocator) {
-  Allocation_Result alloc = allocator.alloc(allocator, sizeof(char) * str.len);
-  if (alloc.err != Allocation_Error_None) {
-    return err(String_Result, alloc.err);
-  }
-
-  char *result = (char *)alloc.allocation;
+  char *result =
+      (char *)try(String_Result, alloc(allocator, sizeof(char) * str.len));
 
   memcpy(result, str.data, sizeof(char) * str.len);
   return ok(
@@ -156,13 +152,8 @@ String_Result string_clone(String str, Allocator allocator) {
 }
 
 String_Result string_clone_terminated(String str, Allocator allocator) {
-  Allocation_Result alloc =
-      allocator.alloc(allocator, sizeof(char) * str.len + 1);
-  if (alloc.err != Allocation_Error_None) {
-    return err(String_Result, alloc.err);
-  }
-
-  char *result = (char *)alloc.allocation;
+  char *result =
+      (char *)try(String_Result, alloc(allocator, sizeof(char) * str.len + 1));
 
   memcpy(result, str.data, sizeof(char) * str.len);
   result[str.len] = '\0';
@@ -854,20 +845,20 @@ String builder_get_string(String_Builder *b) {
   };
 }
 
-String builder_clone_string(String_Builder *b, Allocator allocator) {
-  Allocation_Result alloc = allocator.alloc(allocator, sizeof(char) * b->len);
-  if (alloc.err != Allocation_Error_None) {
-    return (String){0};
-  }
+String_Result builder_clone_string(String_Builder *b, Allocator allocator) {
+  char *mem = try(String_Result, alloc(allocator, sizeof(char) * b->len));
 
-  memcpy(alloc.allocation, b->buf, sizeof(char) * b->len);
-  return (String){
-    .ptr = alloc.allocation,
-    .data = alloc.allocation,
-    .len = b->len,
-    .is_owned = true,
-    .is_dynamically_allocated = true,
-  };
+  memcpy(mem, b->buf, sizeof(char) * b->len);
+  return ok(
+      String_Result,
+      ((String){
+        .ptr = mem,
+        .data = mem,
+        .len = b->len,
+        .is_owned = true,
+        .is_dynamically_allocated = true,
+      })
+  );
 }
 
 bool32 string_reader_is_eof(String_Reader *reader) {

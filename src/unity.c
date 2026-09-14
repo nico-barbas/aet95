@@ -11,6 +11,7 @@
 #include "core/math.c"
 #include "core/physics.c"
 #include "core/platform.c"
+#include "core/rand.c"
 #include "core/strings.c"
 #include "db.c"
 #include "document.c"

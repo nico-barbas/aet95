@@ -7,17 +7,7 @@
 #include <assert.h>
 
 #define BLOB_STORAGE_CAP 64
-
-// NOTE(nico): need to find a way to register types. The best would be at
-// compile time so every single types is known
-// static Fmt_Type_Entry formats[128] = {0};
-// static usize format_lookup[128] = {0};
-
-// static inline usize resolve_format_entry(Type_Info info) {
-//   (void)info;
-
-//   return 0;
-// }
+static_assert(sizeof((Fmt_Arg){0}.blob) == BLOB_STORAGE_CAP);
 
 void fmt_printb_impl(
     String_Builder *b, const char *fmt_str, Fmt_Arg_Buffer args
@@ -43,9 +33,11 @@ void fmt_printb_impl(
 
     if (c == '{' && !string_reader_is_eof(&reader) &&
         string_reader_peek(&reader) == '}') {
+
+      string_reader_advance(&reader);
       if (token_count >= args.len) {
-        assert(false);
-        break;
+        builder_write_string(b, from_cstring("{invalid argument}"));
+        continue;
       }
       Fmt_Arg *arg = array_get_ptr(args, token_count);
 
@@ -101,6 +93,12 @@ void fmt_printb_impl(
         assert(false);
         break;
       }
+
+      token_count += 1;
+    } else {
+      // FIXME(nico): can batch the non-token char.
+      // Optimization for later though
+      builder_write_char(b, c);
     }
   }
 }

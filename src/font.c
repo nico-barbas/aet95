@@ -33,26 +33,23 @@ init_font_atlas_from_file(Font_Atlas *font, String path, Allocator allocator) {
       read_entire_file(path, false, allocator), Font_Error_Failed_To_Read_File
   );
 
-  Allocation_Result bitmap_alloc = allocator.alloc(allocator, CPU_TEXTURE_SIZE);
-  if (bitmap_alloc.err != Allocation_Error_None) {
-    return Font_Error_Failed_To_Alloc_Data;
-  }
-  font->cpu_texture = (byte *)bitmap_alloc.allocation;
+  font->cpu_texture = (byte *)or_return(
+      alloc(allocator, CPU_TEXTURE_SIZE), Font_Error_Failed_To_Alloc_Data
+  );
   memset(font->cpu_texture, 0, CPU_TEXTURE_SIZE);
 
-  Allocation_Result rgba_alloc =
-      allocator.alloc(allocator, CPU_TEXTURE_SIZE * 4);
-  if (rgba_alloc.err != Allocation_Error_None) {
-    allocator.free(allocator, font->cpu_texture);
+  Allocation_Result rgba_alloc = alloc(allocator, CPU_TEXTURE_SIZE * 4);
+  if (!rgba_alloc.ok) {
+    free_(allocator, font->cpu_texture);
     return Font_Error_Failed_To_Alloc_Data;
   }
-  font->cpu_rgba_texture = rgba_alloc.allocation;
+  font->cpu_rgba_texture = rgba_alloc.value;
 
   Font_Atlas_Cache_Make_Result cache_result =
       make_font_atlas_cache(32, allocator);
   if (!cache_result.ok) {
-    allocator.free(allocator, font->cpu_texture);
-    allocator.free(allocator, font->cpu_rgba_texture);
+    free_(allocator, font->cpu_texture);
+    free_(allocator, font->cpu_rgba_texture);
     return Font_Error_Failed_To_Alloc_Data;
   }
   font->cache = cache_result.value;
@@ -67,8 +64,8 @@ init_font_atlas_from_file(Font_Atlas *font, String path, Allocator allocator) {
       nullptr
   );
   if (!stbtt_ok) {
-    allocator.free(allocator, font->cpu_texture);
-    allocator.free(allocator, font->cpu_rgba_texture);
+    free_(allocator, font->cpu_texture);
+    free_(allocator, font->cpu_rgba_texture);
     delete_font_atlas_cache(&font->cache);
     return Font_Error_Failed_To_Load_Font;
   }
@@ -84,8 +81,8 @@ init_font_atlas_from_file(Font_Atlas *font, String path, Allocator allocator) {
     },
   }));
   if (!gpu_texture_is_valid(font->gpu_texture)) {
-    allocator.free(allocator, font->cpu_texture);
-    allocator.free(allocator, font->cpu_rgba_texture);
+    free_(allocator, font->cpu_texture);
+    free_(allocator, font->cpu_rgba_texture);
     delete_font_atlas_cache(&font->cache);
     stbtt_PackEnd(&font->pack_ctx);
     return Font_Error_Failed_To_Load_Font;
@@ -111,20 +108,13 @@ font_atlas_load_font_size(Font_Atlas *font, f32 size, Allocator allocator) {
   entry.last_codepoint = font->last_codepoint;
 
   // NOTE(nico): can probably cache this entire allocation in the font atlas
-  Allocation_Result packed_char_alloc = allocator.alloc(
-      allocator, sizeof(stbtt_packedchar) * ASCII_CODEPOINT_COUNT
+  stbtt_packedchar *packed_chars = (stbtt_packedchar *)or_return(
+      alloc(allocator, sizeof(stbtt_packedchar) * ASCII_CODEPOINT_COUNT),
+      err(Font_Atlas_Entry_Load_Result, Font_Error_Failed_To_Load_Font_Size)
   );
-  if (packed_char_alloc.err != Allocation_Error_None) {
-    return err(
-        Font_Atlas_Entry_Load_Result, Font_Error_Failed_To_Load_Font_Size
-    );
-  }
   defer {
-    allocator.free(allocator, packed_char_alloc.allocation);
+    free_(allocator, packed_chars);
   };
-
-  stbtt_packedchar *packed_chars =
-      (stbtt_packedchar *)packed_char_alloc.allocation;
 
   i32 stbtt_ok = stbtt_PackFontRange(
       &font->pack_ctx,
@@ -224,8 +214,8 @@ void destroy_font_atlas(Font_Atlas *font) {
     delete_array(font->cache.items[i].glyphs);
   }
 
-  font->allocator.free(font->allocator, font->cpu_texture);
-  font->allocator.free(font->allocator, font->cpu_rgba_texture);
+  free_(font->allocator, font->cpu_texture);
+  free_(font->allocator, font->cpu_rgba_texture);
   delete_font_atlas_cache(&font->cache);
   stbtt_PackEnd(&font->pack_ctx);
   destroy_gpu_texture(font->gpu_texture);

@@ -17,6 +17,19 @@
 /////////////////////////////////////
 // Actual rendering
 /////////////////////////////////////
+typedef enum Model_Create_Error {
+  Model_Create_Error_None,
+  Model_Create_Error_Emtpy_GLTF_File,
+} Model_Create_Error;
+
+typedef enum Material_Create_Error {
+  Material_Create_Error_None,
+} Material_Create_Error;
+
+typedef enum Mesh_Primitive_Create_Error {
+  Mesh_Primitive_Create_Error_None,
+} Mesh_Primitive_Create_Error;
+
 /*
   TODO(nico): The renderer is pretty barebone at the moment. Planned features:
     - Batch draw calls per model to allow instancing
@@ -39,59 +52,17 @@ typedef struct Instance_Data {
   Color color;
 } Instance_Data;
 
-typedef struct Material {
-  u32 handle;
-  GPU_Buffer_Memory gpu_uniforms;
-  GPU_Texture map_albedo;
-  GPU_Sampler sampler;
-  GPU_Bind_Group bind_group;
-} Material;
-
-typedef enum Material_Create_Error {
-  Material_Create_Error_None,
-} Material_Create_Error;
-
-typedef Result(Material, Material_Create_Error) Material_Create_Result;
-typedef Option(Material) Material_Option;
-
 typedef struct Mesh_Primitive {
   GPU_Buffer_Memory gpu_vertices;
   GPU_Buffer_Memory gpu_indices;
   usize index_count;
-  u32 material_handle;
+  // u32 material_handle;
   AABB_Collider collider;
 } Mesh_Primitive;
 
-typedef struct Mesh_Primitive_Create_Info {
-  Vertex_Array vertices;
-  Index_Array indices;
-  Material *material;
-} Mesh_Primitive_Create_Info;
-
-// NOTE(nico): This is very similar to the corresponding create info. This is
-// mostly for type correctness reason and clearer semantics. The material update
-// isn't available for now
-typedef struct Mesh_Primitive_Update_Info {
-  Vertex_Array vertices;
-  Index_Array indices;
-} Mesh_Primitive_Update_Info;
-
-typedef struct Mesh_Primitive_Draw_Info {
-  Mesh_Primitive primitive;
-  Mat4 transform;
-  Color color;
-} Mesh_Primitive_Draw_Info;
-
-typedef enum Mesh_Primitive_Create_Error {
-  Mesh_Primitive_Create_Error_None,
-} Mesh_Primitive_Create_Error;
-
-typedef Result(
-    Mesh_Primitive, Mesh_Primitive_Create_Error
-) Mesh_Primitive_Create_Result;
-
 typedef struct Model {
   Mesh_Primitive primitives[MESH_PRIMITIVE_CAP];
+  u32 default_materials[MESH_PRIMITIVE_CAP];
   AABB_Collider collider;
   usize primitive_count;
 } Model;
@@ -106,14 +77,28 @@ typedef struct Model_Draw_Info {
   Model model;
   Mat4 transform;
   Color color;
+  Option(u32) materials[MESH_PRIMITIVE_CAP];
 } Model_Draw_Info;
 
-typedef enum Model_Create_Error {
-  Model_Create_Error_None,
-  Model_Create_Error_Emtpy_GLTF_File,
-} Model_Create_Error;
+typedef struct Mesh_Primitive_Create_Info {
+  Vertex_Array vertices;
+  Index_Array indices;
+} Mesh_Primitive_Create_Info;
 
-typedef Result(Model, Model_Create_Error) Model_Create_Result;
+// NOTE(nico): This is very similar to the corresponding create info. This is
+// mostly for type correctness reason and clearer semantics. The material update
+// isn't available for now
+typedef struct Mesh_Primitive_Update_Info {
+  Vertex_Array vertices;
+  Index_Array indices;
+} Mesh_Primitive_Update_Info;
+
+typedef struct Mesh_Primitive_Draw_Info {
+  Mesh_Primitive primitive;
+  u32 material_handle;
+  Mat4 transform;
+  Color color;
+} Mesh_Primitive_Draw_Info;
 
 typedef struct Renderer {
   GPU_Texture depth_texture; // FIXME(nico): we'll use a offscreen target, so
@@ -136,6 +121,14 @@ typedef struct Renderer {
   usize instance_count;
 } Renderer;
 
+typedef Result(Model, Model_Create_Error) Model_Create_Result;
+typedef Result(
+    Mesh_Primitive, Mesh_Primitive_Create_Error
+) Mesh_Primitive_Create_Result;
+
+typedef Result(Material, Material_Create_Error) Material_Create_Result;
+typedef Option(Material) Material_Option;
+
 void init_renderer(
     Renderer *renderer, i32 render_w, i32 render_h, Allocator allocator
 );
@@ -147,14 +140,14 @@ void end_render(Renderer *renderer);
 void draw_model(Renderer *renderer, Model_Draw_Info *info);
 void draw_mesh_primitive(Renderer *renderer, Mesh_Primitive_Draw_Info *info);
 
-Model_Create_Result model_make_cube(Renderer *renderer, Material *material);
-Model_Create_Result model_make_plane(Renderer *renderer, Material *material);
+Model_Create_Result model_make_cube(Renderer *renderer);
+Model_Create_Result model_make_plane(Renderer *renderer);
 
 Model_Create_Result model_load_from_geometry(
     Renderer *renderer,
     Vertex_Array vertices,
     Index_Array indices,
-    Material *material
+    Material *default_material
 );
 Model_Create_Result model_load_gltf_from_file(
     Renderer *renderer,

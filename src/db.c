@@ -1,6 +1,8 @@
 #include "db.h"
 
 #include "core/allocator.h"
+#include "core/array.h"
+#include "core/platform.h"
 #include "core/strings.h"
 #include "core/types.h"
 #include "font.h"
@@ -49,8 +51,15 @@ Database _db = {0};
 // files) and a lookup of repositories and node name per model id
 
 bool32 init_database(Renderer *renderer, Allocator allocator) {
-  Model_Create_Result cube_model_result =
-      model_make_cube(renderer, &renderer->default_material);
+  _db.material_layout = unwrap(make_gpu_shader_group_layout(
+      &(GPU_Shader_Group_Layout_Create_Info){
+        .binds =
+            ARRAY_LIT(GPU_Shader_Bind_Info, SHADER_TEXTURE(), SHADER_SAMPLER())
+      },
+      allocator
+  ));
+
+  Model_Create_Result cube_model_result = model_make_cube(renderer);
   if (!cube_model_result.ok) {
     return false;
   }

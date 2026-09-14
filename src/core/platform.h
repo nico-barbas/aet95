@@ -266,8 +266,17 @@ Text_Array app_chars_pressed();
 typedef enum GPU_Error {
   GPU_Error_None,
   GPU_Error_Uninitialized_Backend,
-  GPU_Error_Failed_To_Create_Texture,
   GPU_Error_Invalid_Texture_Data,
+  GPU_Error_Invalid_Shader_Layout,
+  GPU_Error_Invalid_Shader_Source,
+  GPU_Error_Invalid_Shader_Group_Data_Index,
+  GPU_Error_Invalid_Shader_Bind_Data,
+  GPU_Error_Failed_To_Create_Texture,
+  GPU_Error_Failed_To_Create_Shader_Program,
+  GPU_Error_Failed_To_Create_Shader_Group_Layout,
+  GPU_Error_Failed_To_Create_Shader_Layout,
+  GPU_Error_Failed_To_Create_Shader_Group_Data,
+  GPU_Error_Failed_To_Create_Pipeline,
 } GPU_Error;
 
 /////////////////////////////
@@ -331,7 +340,7 @@ typedef enum GPU_Texture_Format {
   GPU_Texture_Format_RGBA8Unorm = 0x00000016,
   GPU_Texture_Format_RGBA8UnormSrgb = 0x00000017,
   GPU_Texture_Format_RGBA16Unorm = 0x00000024,
-  GPU_Texture_Format_Depth24Plus = 0x00000012,
+  GPU_Texture_Format_Depth24Plus = 0x0000002E,
 } GPU_Texture_Format;
 
 typedef enum GPU_Texture_Kind {
@@ -423,12 +432,152 @@ void destroy_gpu_sampler(GPU_Sampler sampler);
 bool32 gpu_sampler_is_value(GPU_Sampler sampler);
 
 ////////////////////////////////////
+// GPU Shader layout
+////////////////////////////////////
+typedef struct WGPUBindGroupImpl *WGPUBindGroup;
+typedef struct WGPUBindGroupLayoutImpl *WGPUBindGroupLayout;
+typedef struct WGPUPipelineLayoutImpl *WGPUPipelineLayout;
+
+// NOTE(nico): mirroring WGPU semantics a bit closer for now since this will be
+// a lot easier on future re-reads and I do not really plan to move from it for
+// now
+
+typedef enum GPU_Shader_Bind_Kind {
+  GPU_Shader_Bind_Kind_Uniform,
+  GPU_Shader_Bind_Kind_Storage,
+  GPU_Shader_Bind_Kind_Texture,
+  GPU_Shader_Bind_Kind_Sampler,
+} GPU_Shader_Bind_Kind;
+
+typedef struct GPU_Shader_Bind_Info {
+  // u32 index;
+  usize associated_size;
+  GPU_Shader_Bind_Kind kind;
+} GPU_Shader_Bind_Info;
+
+typedef struct GPU_Shader_Group_Layout {
+  WGPUBindGroupLayout handle;
+  // u32 index;
+  Array(GPU_Shader_Bind_Info) binds;
+} GPU_Shader_Group_Layout;
+
+typedef struct GPU_Shader_Layout {
+  WGPUPipelineLayout handle;
+} GPU_Shader_Layout;
+
+typedef struct GPU_Shader_Group_Layout_Create_Info {
+  Array(GPU_Shader_Bind_Info) binds;
+} GPU_Shader_Group_Layout_Create_Info;
+
+typedef struct GPU_Shader_Layout_Create_Info {
+  Array(GPU_Shader_Group_Layout) groups;
+} GPU_Shader_Layout_Create_Info;
+
+typedef Result(
+    GPU_Shader_Group_Layout, GPU_Error
+) GPU_Shader_Group_Layout_Create_Result;
+typedef Result(GPU_Shader_Layout, GPU_Error) GPU_Shader_Layout_Create_Result;
+
+// Shader layout bind descriptors — used inside
+// GPU_Shader_Layout_Group_Create_Info.binds
+#define SHADER_UNIFORM(size)                                                   \
+  ((GPU_Shader_Bind_Info){                                                     \
+    .kind = GPU_Shader_Bind_Kind_Uniform, .associated_size = (size)            \
+  })
+#define SHADER_STORAGE(size)                                                   \
+  ((GPU_Shader_Bind_Info){                                                     \
+    .kind = GPU_Shader_Bind_Kind_Storage, .associated_size = (size)            \
+  })
+#define SHADER_TEXTURE()                                                       \
+  ((GPU_Shader_Bind_Info){.kind = GPU_Shader_Bind_Kind_Texture})
+#define SHADER_SAMPLER()                                                       \
+  ((GPU_Shader_Bind_Info){.kind = GPU_Shader_Bind_Kind_Sampler})
+
+GPU_Shader_Group_Layout_Create_Result make_gpu_shader_group_layout(
+    GPU_Shader_Group_Layout_Create_Info *info, Allocator allocator
+);
+GPU_Error destroy_gpu_shader_group_layout(GPU_Shader_Group_Layout layout);
+
+GPU_Shader_Layout_Create_Result
+make_gpu_shader_layout(GPU_Shader_Layout_Create_Info *info);
+GPU_Error destroy_gpu_shader_layout(GPU_Shader_Layout layout);
+
+bool32 gpu_shader_layout_is_valid(GPU_Shader_Layout layout);
+
+////////////////////////////////////
+// GPU Shader data
+////////////////////////////////////
+
+typedef struct GPU_Shader_Bind_Data {
+  // u32 index;
+  GPU_Shader_Bind_Kind kind;
+  union {
+    GPU_Buffer_Memory memory;
+    WGPUTextureView texture_view;
+    GPU_Sampler sampler;
+  };
+} GPU_Shader_Bind_Data;
+
+typedef struct GPU_Shader_Group_Data {
+  WGPUBindGroup handle;
+  // u32 index;
+  Array(GPU_Shader_Bind_Data) binds;
+} GPU_Shader_Group_Data;
+
+typedef Array(GPU_Shader_Group_Data) GPU_Shader_Groups_Data;
+
+typedef struct GPU_Shader_Bind_Data_Create_Info {
+  enum GPU_Shader_Bind_Data_Source {
+    GPU_Shader_Bind_Data_Source_Buffer,
+    GPU_Shader_Bind_Data_Source_Memory,
+    GPU_Shader_Bind_Data_Source_Texture,
+    GPU_Shader_Bind_Data_Source_Sampler,
+  } variant;
+  union {
+    GPU_Buffer *buffer;
+    GPU_Buffer_Memory memory;
+    GPU_Texture texture;
+    GPU_Sampler sampler;
+  };
+} GPU_Shader_Bind_Data_Create_Info;
+
+typedef struct GPU_Shader_Group_Data_Create_Info {
+  GPU_Shader_Group_Layout layout;
+  Array(GPU_Shader_Bind_Data_Create_Info) binds;
+} GPU_Shader_Group_Data_Create_Info;
+
+typedef Result(
+    GPU_Shader_Group_Data, GPU_Error
+) GPU_Shader_Group_Data_Create_Result;
+
+// Shader group bind data sources — used inside
+// GPU_Shader_Group_Data_Create_Info.binds
+#define BIND_BUFFER(ptr)                                                       \
+  (GPU_Shader_Bind_Data_Create_Info) {                                         \
+    .variant = GPU_Shader_Bind_Data_Source_Buffer, .buffer = (ptr)             \
+  }
+#define BIND_MEMORY(mem)                                                       \
+  (GPU_Shader_Bind_Data_Create_Info) {                                         \
+    .variant = GPU_Shader_Bind_Data_Source_Memory, .memory = (mem)             \
+  }
+#define BIND_TEXTURE(tex)                                                      \
+  (GPU_Shader_Bind_Data_Create_Info) {                                         \
+    .variant = GPU_Shader_Bind_Data_Source_Texture, .texture = (tex)           \
+  }
+#define BIND_SAMPLER(s)                                                        \
+  (GPU_Shader_Bind_Data_Create_Info) {                                         \
+    .variant = GPU_Shader_Bind_Data_Source_Sampler, .sampler = (s)             \
+  }
+
+GPU_Shader_Group_Data_Create_Result make_gpu_shader_group_data(
+    GPU_Shader_Group_Data_Create_Info *info, Allocator allocator
+);
+GPU_Error destroy_gpu_shader_group_data(GPU_Shader_Group_Data group);
+
+////////////////////////////////////
 // GPU Pipeline management
 ////////////////////////////////////
 typedef struct WGPURenderPipelineImpl *WGPURenderPipeline;
-typedef struct WGPUPipelineLayoutImpl *WGPUPipelineLayout;
-typedef struct WGPUBindGroupImpl *WGPUBindGroup;
-typedef struct WGPUBindGroupLayoutImpl *WGPUBindGroupLayout;
 
 typedef enum GPU_Blend_Factor {
   GPU_Blend_Factor_Zero = 0x00000001,
@@ -470,29 +619,16 @@ typedef struct GPU_Blend_State {
   GPU_Blend_Component alpha;
 } GPU_Blend_State;
 
-typedef enum GPU_Shader_Data_Kind {
-  GPU_Shader_Data_Kind_Uniform,
-  GPU_Shader_Data_Kind_Storage,
-  GPU_Shader_Data_Kind_Texture,
-  GPU_Shader_Data_Kind_Sampler,
-} GPU_Shader_Data_Kind;
-
-typedef struct GPU_Shader_Data_Info {
-  GPU_Shader_Data_Kind kind;
-  usize associated_size;
-  u32 binding_index;
-} GPU_Shader_Data_Info;
-
-typedef struct GPU_Bind_Group_Info {
-  WGPUBindGroupLayout handle;
-  Array(GPU_Shader_Data_Info) shader_data_infos;
-  u32 group_index;
-} GPU_Bind_Group_Info;
+// typedef struct GPU_Bind_Group_Info {
+//   WGPUBindGroupLayout handle;
+//   Array(GPU_Shader_Data_Info) shader_data_infos;
+//   u32 group_index;
+// } GPU_Bind_Group_Info;
 
 typedef struct GPU_Pipeline {
   WGPURenderPipeline handle;
-  WGPUPipelineLayout layout_handle;
-  Array(GPU_Bind_Group_Info) bind_group_infos;
+  // WGPUPipelineLayout layout_handle;
+  // Array(GPU_Bind_Group_Info) bind_group_infos;
   Allocator allocator;
 } GPU_Pipeline;
 
@@ -522,9 +658,9 @@ typedef struct GPU_Vertex_Attribute {
   u32 shader_location;
 } GPU_Vertex_Attribute;
 
-typedef struct GPU_Bind_Group_Create_Info {
-  Array(GPU_Shader_Data_Info) shader_data_infos;
-} GPU_Bind_Group_Create_Info;
+// typedef struct GPU_Bind_Group_Create_Info {
+//   Array(GPU_Shader_Data_Info) shader_data_infos;
+// } GPU_Bind_Group_Create_Info;
 
 typedef struct GPU_Pipeline_Create_Info {
   GPU_Shader_Source shader_source;
@@ -532,7 +668,9 @@ typedef struct GPU_Pipeline_Create_Info {
   usize vertex_attribute_count;
   usize vertex_stride;
 
-  Array(GPU_Bind_Group_Create_Info) bind_groups;
+  // NOTE(nico): this needs to be pre-instantiated. Will err otherwise
+  GPU_Shader_Layout layout;
+
   Array(GPU_Texture_Format) color_targets;
 
   Option(GPU_Primitive) primitive;
@@ -541,42 +679,7 @@ typedef struct GPU_Pipeline_Create_Info {
   bool32 depth_test;
 } GPU_Pipeline_Create_Info;
 
-typedef struct GPU_Shader_Data_Source {
-  enum {
-    GPU_Shader_Data_Source_Buffer,
-    GPU_Shader_Data_Source_Memory,
-    GPU_Shader_Data_Source_Texture,
-    GPU_Shader_Data_Source_Sampler,
-  } variant;
-  union {
-    GPU_Buffer *buffer;
-    GPU_Buffer_Memory memory;
-    GPU_Texture texture;
-    GPU_Sampler sampler;
-  };
-} GPU_Shader_Data_Source;
-
-typedef struct GPU_Shader_Data {
-  u32 binding_index;
-  GPU_Shader_Data_Kind kind;
-  union {
-    GPU_Buffer_Memory memory;
-    WGPUTextureView texture_view;
-    GPU_Sampler sampler;
-  };
-} GPU_Shader_Data;
-
-typedef Array(GPU_Shader_Data_Source) GPU_Shader_Data_Source_Array;
-typedef Array(GPU_Shader_Data_Source_Array) GPU_Shader_Data_Source_Array_2D;
-typedef Array(GPU_Shader_Data) GPU_Shader_Data_Array;
-
-typedef struct GPU_Bind_Group {
-  WGPUBindGroup handle;
-  Array(GPU_Shader_Data) shader_datas;
-  u32 group_index;
-} GPU_Bind_Group;
-
-typedef Array(GPU_Bind_Group) GPU_Bind_Group_Array;
+typedef Result(GPU_Pipeline, GPU_Error) GPU_Pipeline_Create_Result;
 
 // Vertex attribute helpers — Usage: VERTEX_ATTR_F32x2(My_Vertex, position, 0)
 #define VERTEX_ATTR_F32(type, field, loc)                                      \
@@ -605,63 +708,11 @@ typedef Array(GPU_Bind_Group) GPU_Bind_Group_Array;
     .offset = offsetof(type, field), .shader_location = (loc)                  \
   }
 
-// Shader binding descriptors — used inside GPU_Bind_Group_Create_Info
-#define SHADER_UNIFORM(binding, size)                                          \
-  (GPU_Shader_Data_Info) {                                                     \
-    .kind = GPU_Shader_Data_Kind_Uniform, .binding_index = (binding),          \
-    .associated_size = (size)                                                  \
-  }
-#define SHADER_STORAGE(binding, size)                                          \
-  (GPU_Shader_Data_Info) {                                                     \
-    .kind = GPU_Shader_Data_Kind_Storage, .binding_index = (binding),          \
-    .associated_size = (size)                                                  \
-  }
-#define SHADER_TEXTURE(binding)                                                \
-  (GPU_Shader_Data_Info) {                                                     \
-    .kind = GPU_Shader_Data_Kind_Texture, .binding_index = (binding)           \
-  }
-#define SHADER_SAMPLER(binding)                                                \
-  (GPU_Shader_Data_Info) {                                                     \
-    .kind = GPU_Shader_Data_Kind_Sampler, .binding_index = (binding)           \
-  }
-
-// Bind group data sources — used inside GPU_Shader_Data_Source_Array
-#define BIND_BUFFER(ptr)                                                       \
-  (GPU_Shader_Data_Source) {                                                   \
-    .variant = GPU_Shader_Data_Source_Buffer, .buffer = (ptr)                  \
-  }
-#define BIND_MEMORY(mem)                                                       \
-  (GPU_Shader_Data_Source) {                                                   \
-    .variant = GPU_Shader_Data_Source_Memory, .memory = (mem)                  \
-  }
-#define BIND_TEXTURE(tex)                                                      \
-  (GPU_Shader_Data_Source) {                                                   \
-    .variant = GPU_Shader_Data_Source_Texture, .texture = (tex)                \
-  }
-#define BIND_SAMPLER(s)                                                        \
-  (GPU_Shader_Data_Source) {                                                   \
-    .variant = GPU_Shader_Data_Source_Sampler, .sampler = (s)                  \
-  }
-
-GPU_Pipeline
+GPU_Pipeline_Create_Result
 make_gpu_pipeline(GPU_Pipeline_Create_Info *info, Allocator allocator);
 void destroy_gpu_pipeline(GPU_Pipeline pipeline);
 
 bool32 gpu_pipeline_is_valid(GPU_Pipeline pipeline);
-
-GPU_Bind_Group gpu_pipeline_derive_bind_group(
-    GPU_Pipeline pipeline,
-    GPU_Shader_Data_Source_Array sources,
-    u32 group_index,
-    Allocator allocator
-);
-GPU_Bind_Group_Array gpu_pipeline_derive_bind_group_array(
-    GPU_Pipeline pipeline,
-    GPU_Shader_Data_Source_Array_2D sources,
-    Allocator allocator
-);
-void destroy_gpu_bind_group(GPU_Bind_Group bind_group);
-void destroy_gpu_bind_groups(GPU_Bind_Group_Array bind_groups);
 
 ////////////////////////////////////
 // GPU Render target management
@@ -721,9 +772,11 @@ void gpu_render_pass_end(GPU_Render_Pass pass);
        gpu_render_pass_end(pass), _once = NULL)
 
 void gpu_render_pass_bind_pipeline(GPU_Render_Pass pass, GPU_Pipeline pipeline);
-void gpu_render_pass_bind_group(GPU_Render_Pass pass, GPU_Bind_Group group);
+void gpu_render_pass_bind_group(
+    GPU_Render_Pass pass, GPU_Shader_Group_Data group, u32 index
+);
 void gpu_render_pass_bind_groups(
-    GPU_Render_Pass pass, GPU_Bind_Group_Array groups
+    GPU_Render_Pass pass, GPU_Shader_Groups_Data groups
 );
 
 void gpu_render_pass_draw_indexed(

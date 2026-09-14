@@ -22,21 +22,18 @@ read_entire_file(String path, bool8 null_term, Allocator allocator) {
 
   // NOTE(nico): I ended up supporting null term.. most of the things I need
   // this for are libraries that expect null termination
-  Allocation_Result alloc =
-      allocator.alloc(allocator, file_size + (null_term ? 1 : 0));
-  if (alloc.err != Allocation_Error_None) {
-    // NOTE(nico): this is a bit opaque to return this from an allocation
-    // failure, but oh well..
-    return err(File_Read_Result, File_Error_Failed_To_Read_File);
-  }
-
-  byte *file_buf = (byte *)alloc.allocation;
+  // NOTE(nico): this is a bit opaque to return this from an allocation
+  // failure, but oh well..
+  byte *file_buf = (byte *)or_return(
+      alloc(allocator, file_size + (null_term ? 1 : 0)),
+      err(File_Read_Result, File_Error_Failed_To_Read_File)
+  );
 
   usize read = fread(file_buf, 1, file_size, f);
   if (read < file_size && ferror(f)) {
     // NOTE(nico): Again, pretty opaque, but lazy to handle OS specific errno
     // shit
-    allocator.free(allocator, file_buf);
+    free_(allocator, file_buf);
     return err(File_Read_Result, File_Error_Failed_To_Read_File);
   }
 

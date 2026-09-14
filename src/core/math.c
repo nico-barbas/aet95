@@ -125,11 +125,6 @@ i64 abs_i64(i64 v) {
   return v < 0 ? -v : v;
 }
 
-f32 rand_f32(void) {
-  // return ((f32)rand() / (f32)(RAND_MAX));
-  return 0.f;
-}
-
 u32 min_u32(u32 a, u32 b) {
   return a > b ? b : a;
 }

@@ -28,9 +28,8 @@ Open_Map open_map_init(
     Open_Map_Key_Eq eq_proc,
     Allocator allocator
 ) {
-  void *ptr = nullptr;
-  if (allocator.alloc == nullptr) {
-    return ptr;
+  if (allocator.alloc_proc == nullptr) {
+    return nullptr;
   }
 
   // NOTE(nico): the key used to sit right behind the state tag, which put an
@@ -43,14 +42,10 @@ Open_Map open_map_init(
   usize slot_size = align_up(value_offset + value_size, slot_align);
   usize total_size = slot_size * cap + sizeof(Open_Map_Header);
 
-  Allocation_Result alloc = allocator.alloc(allocator, total_size);
-  if (alloc.err != Allocation_Error_None) {
-    return ptr;
-  }
+  rawptr memory = or_return(alloc(allocator, total_size), nullptr);
+  memset(memory, 0, total_size);
 
-  memset(alloc.allocation, 0, total_size);
-
-  Open_Map_Header *header = (Open_Map_Header *)alloc.allocation;
+  Open_Map_Header *header = (Open_Map_Header *)memory;
   header->allocator = allocator;
   header->cap = cap;
   header->len = 0;
@@ -64,19 +59,19 @@ Open_Map open_map_init(
   header->hash = hash_proc;
   header->key_eq = eq_proc;
 
-  ptr = header + 1;
+  Open_Map map = header + 1;
 
   // NOTE(nico): the slots start right behind the header, so the whole layout
   // rides on the allocator handing back a base that suits the widest payload.
   // Both allocators give 16 and sizeof(Open_Map_Header) is a multiple of it
-  assert((uintptr)ptr % slot_align == 0);
+  assert((uintptr)map % slot_align == 0);
 
-  return ptr;
+  return map;
 }
 
 void delete_open_map(Open_Map map) {
   Open_Map_Header *header = open_map_header(map);
-  header->allocator.free(header->allocator, header);
+  free_(header->allocator, header);
 }
 
 static void *open_map_get_key_ptr(void *slot, Open_Map_Header *header) {

@@ -1,5 +1,8 @@
 #include "core/platform.h"
 
+#include "core/allocator.h"
+#include "core/array.h"
+#include "core/fmt.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/strings.h"
@@ -10,6 +13,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+// #include <stdio.h>
 
 /*
   FIXME(nico):
@@ -130,7 +134,7 @@ bool32 init_app(App_Create_Info *info, Allocator allocator) {
 
   init_arena(
       &app->frame_arena,
-      allocator.alloc(allocator, FRAME_ARENA_SIZE).allocation,
+      unwrap(alloc(allocator, FRAME_ARENA_SIZE)),
       FRAME_ARENA_SIZE
   );
   app->frame_allocator = arena_allocator(&app->frame_arena);
@@ -464,7 +468,7 @@ bool32 app_update(App *app) {
   app->elapsed_time = current_time - app->last_time;
   app->last_time = current_time;
 
-  app->frame_allocator.free_all(app->frame_allocator);
+  free_all(app->frame_allocator);
 
   return app->running;
 }
@@ -571,6 +575,31 @@ Text_Array app_chars_pressed() {
 /////////////////////////////////////
 // All the various callbacks
 /////////////////////////////////////
+static void gpu_print_error(WGPUErrorType type, WGPUStringView message) {
+  static char buf[512] = {0};
+
+  if ((message.data == nullptr && message.length == WGPU_STRLEN) ||
+      message.length == 0) {
+    return;
+  }
+
+  String_Builder builder = make_builder_from_buf(buf, 512);
+  if (message.length == WGPU_STRLEN) {
+    fmt_printb(&builder, "[WGPU] {}: {}", type, message.data);
+  } else {
+    fmt_printb(
+        &builder,
+        "[WGPU] {}: {}",
+        type,
+        ((String){.data = message.data, .len = message.length})
+    );
+  }
+
+  // NOTE(nico): Printf is fine for now until I build a freestanding replacement
+  char *cstr = builder_terminate_string(&builder);
+  printf("%s\n", cstr);
+}
+
 static void gpu_adapter_callback(
     WGPURequestAdapterStatus status,
     WGPUAdapter adapter,
@@ -580,7 +609,7 @@ static void gpu_adapter_callback(
 ) {
   (void)userdata2;
   if (status != WGPURequestAdapterStatus_Success) {
-    printf("[GPU Error] Failed to request Adapter: %s\n", message.data);
+    gpu_print_error(WGPUErrorType_Unknown, message);
     return;
   }
 
@@ -597,7 +626,7 @@ static void gpu_device_callback(
 ) {
   (void)userdata2;
   if (status != WGPURequestDeviceStatus_Success) {
-    printf("[GPU Error] Failed to request Device: %s\n", message.data);
+    gpu_print_error(WGPUErrorType_Unknown, message);
     return;
   }
 
@@ -619,7 +648,7 @@ static void gpu_error_callback(
   // FIXME(nico): use a user-provided logger. Printf is fine for now
   // Hopefully it is null terminated
   // App *app = (App *)userdata1;
-  printf("[GPU Error] %d: %s\n", type, message.data);
+  gpu_print_error(type, message);
 }
 
 static void input_key_callback(
@@ -1094,16 +1123,283 @@ bool32 gpu_sampler_is_value(GPU_Sampler sampler) {
   return sampler.handle != nullptr;
 }
 
+////////////////////////////////////
+// GPU Shader layout
+////////////////////////////////////
+GPU_Shader_Group_Layout_Create_Result make_gpu_shader_group_layout(
+    GPU_Shader_Group_Layout_Create_Info *info, Allocator allocator
+) {
+  WGPUBindGroupLayoutEntry *entries = (WGPUBindGroupLayoutEntry *)or_return(
+      alloc(
+          _app->frame_allocator,
+          sizeof(WGPUBindGroupLayoutEntry) * info->binds.len
+      ),
+      err(GPU_Shader_Group_Layout_Create_Result,
+          GPU_Error_Failed_To_Create_Shader_Layout)
+  );
+
+  GPU_Shader_Group_Layout layout = {0};
+  // layout.index = group_info.index;
+  layout.binds = make_array(layout.binds, info->binds.len, allocator);
+
+  if (layout.binds.items == nullptr) {
+    return err(
+        GPU_Shader_Group_Layout_Create_Result,
+        GPU_Error_Failed_To_Create_Shader_Group_Layout
+    );
+  }
+
+  for (usize i = 0; i < info->binds.len; i += 1) {
+    GPU_Shader_Bind_Info bind_info = array_get(info->binds, i);
+    entries[i] = (WGPUBindGroupLayoutEntry){
+      .binding = (u32)i,
+      .visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment |
+                    WGPUShaderStage_Compute,
+    };
+
+    switch (bind_info.kind) {
+    case GPU_Shader_Bind_Kind_Uniform:
+      entries[i].buffer =
+          (WGPUBufferBindingLayout){.type = WGPUBufferBindingType_Uniform};
+      break;
+    case GPU_Shader_Bind_Kind_Storage:
+      entries[i].buffer = (WGPUBufferBindingLayout){
+        .type = WGPUBufferBindingType_ReadOnlyStorage
+      };
+      break;
+    case GPU_Shader_Bind_Kind_Texture:
+      entries[i].texture = (WGPUTextureBindingLayout){
+        .sampleType = WGPUTextureSampleType_Float,
+        .viewDimension = WGPUTextureViewDimension_2D,
+      };
+      break;
+    case GPU_Shader_Bind_Kind_Sampler:
+      entries[i].sampler =
+          (WGPUSamplerBindingLayout){.type = WGPUSamplerBindingType_Filtering};
+      break;
+    }
+
+    array_set(layout.binds, i, bind_info);
+  }
+
+  layout.handle = wgpuDeviceCreateBindGroupLayout(
+      _app->gpu_device,
+      &(WGPUBindGroupLayoutDescriptor){
+        .entryCount = info->binds.len,
+        .entries = entries,
+      }
+  );
+
+  if (layout.handle == nullptr) {
+    return err(
+        GPU_Shader_Group_Layout_Create_Result,
+        GPU_Error_Failed_To_Create_Shader_Layout
+    );
+  }
+
+  return ok(GPU_Shader_Group_Layout_Create_Result, layout);
+}
+
+GPU_Error destroy_gpu_shader_group_layout(GPU_Shader_Group_Layout layout) {
+  wgpuBindGroupLayoutRelease(layout.handle);
+  delete_array(layout.binds);
+
+  return GPU_Error_None;
+}
+
+// FIXME(nico): For all those gpu resources, I really need an errdefer-like
+// feature. It currently leaks memory if any step fails
+GPU_Shader_Layout_Create_Result
+make_gpu_shader_layout(GPU_Shader_Layout_Create_Info *info) {
+  if (_app->gpu_device == nullptr) {
+    return err(
+        GPU_Shader_Layout_Create_Result, GPU_Error_Uninitialized_Backend
+    );
+  }
+
+  GPU_Shader_Layout layout = {0};
+
+  WGPUBindGroupLayout *groups = (WGPUBindGroupLayout *)or_return(
+      alloc(
+          _app->frame_allocator, sizeof(WGPUBindGroupLayout) * info->groups.len
+      ),
+      err(GPU_Shader_Layout_Create_Result,
+          GPU_Error_Failed_To_Create_Shader_Layout)
+  );
+
+  for (usize i = 0; i < info->groups.len; i += 1) {
+    groups[i] = info->groups.items[i].handle;
+  }
+
+  layout.handle = wgpuDeviceCreatePipelineLayout(
+      _app->gpu_device,
+      &(WGPUPipelineLayoutDescriptor){
+        .bindGroupLayoutCount = info->groups.len,
+        .bindGroupLayouts = groups,
+      }
+  );
+
+  return ok(GPU_Shader_Layout_Create_Result, layout);
+}
+
+GPU_Error destroy_gpu_shader_layout(GPU_Shader_Layout layout) {
+  wgpuPipelineLayoutRelease(layout.handle);
+  return GPU_Error_None;
+}
+
+////////////////////////////////////
+// GPU Shader data
+////////////////////////////////////
+GPU_Shader_Group_Data_Create_Result make_gpu_shader_group_data(
+    GPU_Shader_Group_Data_Create_Info *info, Allocator allocator
+) {
+  if (_app == nullptr || _app->gpu_device == nullptr) {
+    return err(
+        GPU_Shader_Group_Data_Create_Result, GPU_Error_Uninitialized_Backend
+    );
+  }
+
+  if (info->binds.len != info->layout.binds.len) {
+    return err(
+        GPU_Shader_Group_Data_Create_Result, GPU_Error_Invalid_Shader_Bind_Data
+    );
+  }
+
+  GPU_Shader_Group_Data group_data = {0};
+  group_data.binds = make_array(group_data.binds, info->binds.len, allocator);
+  // group_data.index = group_info.index;
+
+  if (group_data.binds.items == nullptr) {
+    return err(
+        GPU_Shader_Group_Data_Create_Result,
+        GPU_Error_Failed_To_Create_Shader_Group_Data
+    );
+  }
+
+  Array(WGPUBindGroupEntry) entries;
+  entries = make_array(entries, info->binds.len, _app->frame_allocator);
+  if (entries.items == nullptr) {
+    return err(
+        GPU_Shader_Group_Data_Create_Result,
+        GPU_Error_Failed_To_Create_Shader_Group_Data
+    );
+  }
+
+  for (usize i = 0; i < info->binds.len; i += 1) {
+    GPU_Shader_Bind_Info bind_info = array_get(info->layout.binds, i);
+    GPU_Shader_Bind_Data_Create_Info bind_create_info =
+        array_get(info->binds, i);
+
+    GPU_Shader_Bind_Data *data = array_get_ptr(group_data.binds, i);
+    data->kind = bind_info.kind;
+
+    WGPUBindGroupEntry entry = {
+      .binding = (u32)i,
+      .size = WGPU_WHOLE_SIZE,
+    };
+
+    switch (bind_info.kind) {
+    case GPU_Shader_Bind_Kind_Uniform:
+    case GPU_Shader_Bind_Kind_Storage:
+      if (bind_create_info.variant == GPU_Shader_Bind_Data_Source_Memory) {
+        if (!gpu_buffer_memory_is_valid(bind_create_info.memory)) {
+          return err(
+              GPU_Shader_Group_Data_Create_Result,
+              GPU_Error_Failed_To_Create_Shader_Group_Data
+          );
+        }
+
+        data->memory = bind_create_info.memory;
+      } else if (
+          bind_create_info.variant == GPU_Shader_Bind_Data_Source_Buffer
+      ) {
+        if (bind_create_info.buffer == nullptr ||
+            !gpu_buffer_is_valid(*bind_create_info.buffer)) {
+          return err(
+              GPU_Shader_Group_Data_Create_Result,
+              GPU_Error_Failed_To_Create_Shader_Group_Data
+          );
+        }
+
+        data->memory = gpu_buffer_alloc(
+            bind_create_info.buffer, bind_info.associated_size
+        );
+      } else {
+        assert(false);
+      }
+
+      if (!gpu_buffer_memory_is_valid(data->memory)) {
+        return err(
+            GPU_Shader_Group_Data_Create_Result,
+            GPU_Error_Failed_To_Create_Shader_Group_Data
+        );
+      }
+
+      entry.buffer = data->memory.buffer->handle;
+      entry.offset = data->memory.offset;
+      entry.size = data->memory.size;
+      break;
+    case GPU_Shader_Bind_Kind_Texture:
+      if (bind_create_info.variant != GPU_Shader_Bind_Data_Source_Texture ||
+          !gpu_texture_is_valid(bind_create_info.texture)) {
+        return err(
+            GPU_Shader_Group_Data_Create_Result,
+            GPU_Error_Invalid_Shader_Bind_Data
+        );
+      }
+
+      data->texture_view = gpu_texture_derive_view(bind_create_info.texture);
+      entry.textureView = data->texture_view;
+      break;
+    case GPU_Shader_Bind_Kind_Sampler:
+      if (bind_create_info.variant != GPU_Shader_Bind_Data_Source_Sampler) {
+        return err(
+            GPU_Shader_Group_Data_Create_Result,
+            GPU_Error_Invalid_Shader_Bind_Data
+        );
+      }
+
+      data->sampler = bind_create_info.sampler;
+      entry.sampler = data->sampler.handle;
+      break;
+    }
+
+    array_set(entries, i, entry);
+  }
+
+  group_data.handle = wgpuDeviceCreateBindGroup(
+      _app->gpu_device,
+      &(WGPUBindGroupDescriptor){
+        .layout = info->layout.handle,
+        .entryCount = entries.len,
+        .entries = entries.items,
+      }
+  );
+
+  return ok(GPU_Shader_Group_Data_Create_Result, group_data);
+}
+
+GPU_Error destroy_gpu_shader_group_data(GPU_Shader_Group_Data group) {
+  wgpuBindGroupRelease(group.handle);
+  delete_array(group.binds);
+
+  return GPU_Error_None;
+}
+
 /////////////////////////////
 // GPU Pipeline management
 /////////////////////////////
-GPU_Pipeline
+GPU_Pipeline_Create_Result
 make_gpu_pipeline(GPU_Pipeline_Create_Info *info, Allocator allocator) {
   GPU_Pipeline pipeline = {0};
   pipeline.allocator = allocator;
 
   if (_app == nullptr || _app->gpu_device == nullptr) {
-    return (GPU_Pipeline){0};
+    return err(GPU_Pipeline_Create_Result, GPU_Error_Uninitialized_Backend);
+  }
+
+  if (!gpu_shader_layout_is_valid(info->layout)) {
+    return err(GPU_Pipeline_Create_Result, GPU_Error_Invalid_Shader_Layout);
   }
 
   const char *shader_src = nullptr;
@@ -1116,9 +1412,7 @@ make_gpu_pipeline(GPU_Pipeline_Create_Info *info, Allocator allocator) {
     usize sz = (usize)ftell(f);
     rewind(f);
 
-    byte *file_buf =
-        (byte *)_app->frame_allocator.alloc(_app->frame_allocator, sz + 1)
-            .allocation;
+    byte *file_buf = (byte *)unwrap(alloc(_app->frame_allocator, sz + 1));
 
     fread(file_buf, 1, sz, f);
     file_buf[sz] = '\0';
@@ -1131,7 +1425,7 @@ make_gpu_pipeline(GPU_Pipeline_Create_Info *info, Allocator allocator) {
   }
 
   if (shader_src == nullptr) {
-    return (GPU_Pipeline){0};
+    return err(GPU_Pipeline_Create_Result, GPU_Error_Invalid_Shader_Source);
   }
 
   WGPUShaderSourceWGSL wgsl_source = {
@@ -1144,87 +1438,10 @@ make_gpu_pipeline(GPU_Pipeline_Create_Info *info, Allocator allocator) {
   );
 
   if (shader_module == nullptr) {
-    return (GPU_Pipeline){0};
-  }
-
-  pipeline.bind_group_infos =
-      make_array(pipeline.bind_group_infos, info->bind_groups.len, allocator);
-
-  WGPUBindGroupLayout *layouts =
-      (WGPUBindGroupLayout *)_app->frame_allocator
-          .alloc(
-              _app->frame_allocator,
-              sizeof(WGPUBindGroupLayout) * info->bind_groups.len
-          )
-          .allocation;
-
-  for (usize i = 0; i < info->bind_groups.len; i++) {
-    GPU_Bind_Group_Create_Info bgi = array_get(info->bind_groups, i);
-    usize si_len = bgi.shader_data_infos.len;
-
-    WGPUBindGroupLayoutEntry *entries =
-        (WGPUBindGroupLayoutEntry *)_app->frame_allocator
-            .alloc(
-                _app->frame_allocator, sizeof(WGPUBindGroupLayoutEntry) * si_len
-            )
-            .allocation;
-
-    pipeline.bind_group_infos.items[i].shader_data_infos = make_array(
-        pipeline.bind_group_infos.items[i].shader_data_infos, si_len, allocator
+    return err(
+        GPU_Pipeline_Create_Result, GPU_Error_Failed_To_Create_Shader_Program
     );
-
-    for (usize j = 0; j < si_len; j++) {
-      GPU_Shader_Data_Info sdi = array_get(bgi.shader_data_infos, j);
-      entries[j] = (WGPUBindGroupLayoutEntry){
-        .binding = sdi.binding_index,
-        .visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment |
-                      WGPUShaderStage_Compute,
-      };
-
-      switch (sdi.kind) {
-      case GPU_Shader_Data_Kind_Uniform:
-        entries[j].buffer =
-            (WGPUBufferBindingLayout){.type = WGPUBufferBindingType_Uniform};
-        break;
-      case GPU_Shader_Data_Kind_Storage:
-        entries[j].buffer = (WGPUBufferBindingLayout){
-          .type = WGPUBufferBindingType_ReadOnlyStorage
-        };
-        break;
-      case GPU_Shader_Data_Kind_Texture:
-        entries[j].texture = (WGPUTextureBindingLayout){
-          .sampleType = WGPUTextureSampleType_Float,
-          .viewDimension = WGPUTextureViewDimension_2D,
-        };
-        break;
-      case GPU_Shader_Data_Kind_Sampler:
-        entries[j].sampler = (WGPUSamplerBindingLayout){
-          .type = WGPUSamplerBindingType_Filtering
-        };
-        break;
-      }
-
-      array_set(pipeline.bind_group_infos.items[i].shader_data_infos, j, sdi);
-    }
-
-    pipeline.bind_group_infos.items[i].group_index = (u32)i;
-    pipeline.bind_group_infos.items[i].handle = wgpuDeviceCreateBindGroupLayout(
-        _app->gpu_device,
-        &(WGPUBindGroupLayoutDescriptor){
-          .entryCount = si_len,
-          .entries = entries,
-        }
-    );
-    layouts[i] = pipeline.bind_group_infos.items[i].handle;
   }
-
-  pipeline.layout_handle = wgpuDeviceCreatePipelineLayout(
-      _app->gpu_device,
-      &(WGPUPipelineLayoutDescriptor){
-        .bindGroupLayoutCount = info->bind_groups.len,
-        .bindGroupLayouts = layouts,
-      }
-  );
 
   bool32 use_surface = info->color_targets.len == 0;
   usize target_count = use_surface ? 1 : info->color_targets.len;
@@ -1272,7 +1489,7 @@ make_gpu_pipeline(GPU_Pipeline_Create_Info *info, Allocator allocator) {
   pipeline.handle = wgpuDeviceCreateRenderPipeline(
       _app->gpu_device,
       &(WGPURenderPipelineDescriptor){
-        .layout = pipeline.layout_handle,
+        .layout = info->layout.handle,
         .vertex =
             (WGPUVertexState){
               .module = shader_module,
@@ -1307,142 +1524,15 @@ make_gpu_pipeline(GPU_Pipeline_Create_Info *info, Allocator allocator) {
 
   wgpuShaderModuleRelease(shader_module);
 
-  return pipeline;
+  return ok(GPU_Pipeline_Create_Result, pipeline);
 }
 
 void destroy_gpu_pipeline(GPU_Pipeline pipeline) {
-  for (usize i = 0; i < pipeline.bind_group_infos.len; i++) {
-    GPU_Bind_Group_Info info = pipeline.bind_group_infos.items[i];
-
-    wgpuBindGroupLayoutRelease(info.handle);
-    delete_array(info.shader_data_infos);
-  }
-
-  delete_array(pipeline.bind_group_infos);
-  wgpuPipelineLayoutRelease(pipeline.layout_handle);
   wgpuRenderPipelineRelease(pipeline.handle);
 }
 
 bool32 gpu_pipeline_is_valid(GPU_Pipeline pipeline) {
   return pipeline.handle != nullptr;
-}
-
-GPU_Bind_Group gpu_pipeline_derive_bind_group(
-    GPU_Pipeline pipeline,
-    GPU_Shader_Data_Source_Array sources,
-    u32 group_index,
-    Allocator allocator
-) {
-  assert(_app != nullptr && _app->gpu_device != nullptr);
-  assert(group_index < pipeline.bind_group_infos.len);
-
-  GPU_Bind_Group_Info bgi = array_get(pipeline.bind_group_infos, group_index);
-  usize entry_count = bgi.shader_data_infos.len;
-  assert(sources.len == entry_count);
-
-  GPU_Bind_Group bind_group;
-  bind_group.shader_datas =
-      make_array(bind_group.shader_datas, entry_count, allocator);
-  bind_group.group_index = bgi.group_index;
-
-  Array(WGPUBindGroupEntry) entries;
-  entries = make_array(entries, entry_count, _app->frame_allocator);
-
-  for (usize j = 0; j < entry_count; j += 1) {
-    GPU_Shader_Data_Info sdi = array_get(bgi.shader_data_infos, j);
-    GPU_Shader_Data_Source source = array_get(sources, j);
-
-    WGPUBindGroupEntry entry = {
-      .binding = sdi.binding_index, .size = WGPU_WHOLE_SIZE
-    };
-
-    GPU_Shader_Data data = {
-      .kind = sdi.kind,
-      .binding_index = sdi.binding_index,
-    };
-
-    switch (sdi.kind) {
-    case GPU_Shader_Data_Kind_Uniform:
-    case GPU_Shader_Data_Kind_Storage:
-      assert(source.buffer != nullptr && gpu_buffer_is_valid(*source.buffer));
-
-      if (source.variant == GPU_Shader_Data_Source_Memory) {
-        data.memory = source.memory;
-        entry.buffer = source.memory.buffer->handle;
-      } else if (source.variant == GPU_Shader_Data_Source_Buffer) {
-        data.memory = gpu_buffer_alloc(source.buffer, sdi.associated_size);
-        assert(gpu_buffer_memory_is_valid(data.memory));
-
-        entry.buffer = source.buffer->handle;
-      } else {
-        assert(false);
-      }
-
-      entry.offset = data.memory.offset;
-      entry.size = data.memory.size;
-      break;
-    case GPU_Shader_Data_Kind_Texture:
-      assert(source.variant == GPU_Shader_Data_Source_Texture);
-      assert(gpu_texture_is_valid(source.texture));
-      data.texture_view = gpu_texture_derive_view(source.texture);
-      entry.textureView = data.texture_view;
-      break;
-    case GPU_Shader_Data_Kind_Sampler:
-      assert(source.variant == GPU_Shader_Data_Source_Sampler);
-      data.sampler = source.sampler;
-      entry.sampler = source.sampler.handle;
-      break;
-    }
-
-    array_set(bind_group.shader_datas, j, data);
-    array_set(entries, j, entry);
-  }
-
-  bind_group.handle = wgpuDeviceCreateBindGroup(
-      _app->gpu_device,
-      &(WGPUBindGroupDescriptor){
-        .layout = bgi.handle,
-        .entryCount = entries.len,
-        .entries = entries.items,
-      }
-  );
-
-  return bind_group;
-}
-
-GPU_Bind_Group_Array gpu_pipeline_derive_bind_group_array(
-    GPU_Pipeline pipeline,
-    GPU_Shader_Data_Source_Array_2D sources,
-    Allocator allocator
-) {
-  assert(_app != nullptr && _app->gpu_device != nullptr);
-  assert(sources.len == pipeline.bind_group_infos.len);
-
-  GPU_Bind_Group_Array result;
-  result = make_array(result, sources.len, allocator);
-
-  for (usize i = 0; i < sources.len; i += 1) {
-    array_set(
-        result,
-        i,
-        gpu_pipeline_derive_bind_group(
-            pipeline, array_get(sources, i), (u32)i, allocator
-        )
-    );
-  }
-
-  return result;
-}
-
-void destroy_gpu_bind_group(GPU_Bind_Group bind_group) {
-  delete_array(bind_group.shader_datas);
-}
-
-void destroy_gpu_bind_groups(GPU_Bind_Group_Array bind_groups) {
-  for (usize i = 0; i < bind_groups.len; i += 1) {
-    destroy_gpu_bind_group(bind_groups.items[i]);
-  }
-  delete_array(bind_groups);
 }
 
 ////////////////////////////////////
@@ -1680,17 +1770,19 @@ void gpu_render_pass_bind_pipeline(
   wgpuRenderPassEncoderSetPipeline(pass.handle, pipeline.handle);
 }
 
-void gpu_render_pass_bind_group(GPU_Render_Pass pass, GPU_Bind_Group group) {
+void gpu_render_pass_bind_group(
+    GPU_Render_Pass pass, GPU_Shader_Group_Data group, u32 index
+) {
   wgpuRenderPassEncoderSetBindGroup(
-      pass.handle, group.group_index, group.handle, 0, nullptr
+      pass.handle, index, group.handle, 0, nullptr
   );
 }
 
 void gpu_render_pass_bind_groups(
-    GPU_Render_Pass pass, GPU_Bind_Group_Array groups
+    GPU_Render_Pass pass, GPU_Shader_Groups_Data groups
 ) {
   for (usize i = 0; i < groups.len; i += 1) {
-    gpu_render_pass_bind_group(pass, array_get(groups, i));
+    gpu_render_pass_bind_group(pass, array_get(groups, i), (u32)i);
   }
 }
 

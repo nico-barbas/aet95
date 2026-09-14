@@ -9,20 +9,27 @@
     bool8 is_dynamically_allocated;                                            \
   }
 
+// NOTE: items is nullptr when the allocation fails, callers check for it
 #define make_array(array_target, cap, _allocator)                              \
   ((typeof(array_target)){                                                     \
     .allocator = (_allocator),                                                 \
-    .items = (_allocator)                                                      \
-                 .alloc((_allocator), (cap) * sizeof(*((array_target).items))) \
-                 .allocation,                                                  \
+    .items = make_array_items_(                                                \
+        alloc((_allocator), (cap) * sizeof(*((array_target).items))),          \
+        concat_(make_array_alloc_, __LINE__)                                   \
+    ),                                                                         \
     .len = (cap),                                                              \
     .is_dynamically_allocated = true,                                          \
+  })
+#define make_array_items_(expr, res)                                           \
+  __extension__({                                                              \
+    typeof(expr)(res) = (expr);                                                \
+    (res).ok ? (res).value : nullptr;                                          \
   })
 
 #define delete_array(array)                                                    \
   do {                                                                         \
     if (((array).is_dynamically_allocated))                                    \
-      (array).allocator.free((array).allocator, (array).items);                \
+      free_((array).allocator, (array).items);                                 \
   } while (0)
 
 #define array_get(array, i) ((array).items[(i)])

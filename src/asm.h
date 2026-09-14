@@ -91,6 +91,7 @@ typedef enum Aet_Disassembler_Error {
   Aet_Disassembler_Error_None,
   Aet_Disassembler_Error_Invalid_Program,
   Aet_Disassembler_Error_Invalid_Opcode,
+  Aet_Disassembler_Error_Internal_Failure,
 } Aet_Disassembler_Error;
 
 typedef Result(String, Aet_Disassembler_Error) Aet_Disassembler_Result;

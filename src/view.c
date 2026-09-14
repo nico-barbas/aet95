@@ -191,14 +191,9 @@ measure_texture_wrapper(Element_Font el_font, String text) {
 void init_view(Renderer2D *renderer) {
   g_model.global_allocator = heap_allocator();
 
-  Allocation_Result frame_alloc = g_model.global_allocator.alloc(
-      g_model.global_allocator, VIEW_MODEL_FRAME_ARENA_SIZE
-  );
-  assert(frame_alloc.err == Allocation_Error_None);
-
-  init_arena(
-      &g_model.frame_arena, frame_alloc.allocation, VIEW_MODEL_FRAME_ARENA_SIZE
-  );
+  byte *frame_mem =
+      unwrap(alloc(g_model.global_allocator, VIEW_MODEL_FRAME_ARENA_SIZE));
+  init_arena(&g_model.frame_arena, frame_mem, VIEW_MODEL_FRAME_ARENA_SIZE);
   g_model.frame_allocator = arena_allocator(&g_model.frame_arena);
 
   g_model.renderer = renderer;
@@ -217,13 +212,11 @@ void init_view(Renderer2D *renderer) {
 void destroy_view(void) {
   destroy_window_manager(&g_model.window_manager);
   destroy_element_context(&g_model.ctx);
-  g_model.global_allocator.free(
-      g_model.global_allocator, g_model.frame_arena.buf
-  );
+  free_(g_model.global_allocator, g_model.frame_arena.buf);
 }
 
 void update_view(void) {
-  g_model.frame_allocator.free_all(g_model.frame_allocator);
+  free_all(g_model.frame_allocator);
 
   // Drain the mailbox
   for (usize i = 0; i < g_model.mailbox_len; i += 1) {
@@ -1019,8 +1012,9 @@ static void code_editor_view(Window_Data *window) {
       cmds[cmd_count++] = (Code_Editor_Command){
         .kind = Code_Editor_Command_Write,
         .write = {
-          .content =
+          .content = unwrap(
               builder_clone_string(&g_model.builder, g_model.frame_allocator)
+          )
         },
       };
     }
@@ -1212,7 +1206,7 @@ static void code_editor_view(Window_Data *window) {
         &g_model.builder, "ln %d, col %d", (i32)cursor.line, (i32)cursor.col
     );
     String pos =
-        builder_clone_string(&g_model.builder, g_model.frame_allocator);
+        unwrap(builder_clone_string(&g_model.builder, g_model.frame_allocator));
 
     element_label((&(Element_Create_Info){
       .text = pos,

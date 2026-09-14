@@ -211,8 +211,12 @@ void end_render(Renderer *renderer) {
 void draw_model(Renderer *renderer, Model_Draw_Info *info) {
   for (usize i = 0; i < info->model.primitive_count; i += 1) {
     Mesh_Primitive *primitive = &info->model.primitives[i];
+
+    u32 material_handle = info->materials[i].some
+                              ? info->materials[i].value
+                              : info->model.default_materials[i];
     Material *material =
-        open_map_get(renderer->material_cache, primitive->material_handle);
+        open_map_get(renderer->material_cache, material_handle);
     assert(material != nullptr);
 
     gpu_render_pass_bind_group(renderer->_active_pass, material->bind_group);
@@ -238,7 +242,7 @@ void draw_model(Renderer *renderer, Model_Draw_Info *info) {
 void draw_mesh_primitive(Renderer *renderer, Mesh_Primitive_Draw_Info *info) {
   Mesh_Primitive primitive = info->primitive;
   Material *material =
-      open_map_get(renderer->material_cache, primitive.material_handle);
+      open_map_get(renderer->material_cache, info->material_handle);
   assert(material != nullptr);
 
   gpu_render_pass_bind_group(renderer->_active_pass, material->bind_group);
@@ -367,7 +371,7 @@ static Material_Create_Result material_load_gltf(
     .tex_coord = {.raw = {u, v}},                                              \
   }
 
-Model_Create_Result model_make_cube(Renderer *renderer, Material *material) {
+Model_Create_Result model_make_cube(Renderer *renderer) {
   // 4 vertices per face for hard edges, CCW front faces
   Vertex vertices[] = {
     // +Y (top)
@@ -417,11 +421,11 @@ Model_Create_Result model_make_cube(Renderer *renderer, Material *material) {
       renderer,
       (Vertex_Array){.items = vertices, .len = 24},
       (Index_Array){.items = indices, .len = 36},
-      material
+      &renderer->default_material
   );
 }
 
-Model_Create_Result model_make_plane(Renderer *renderer, Material *material) {
+Model_Create_Result model_make_plane(Renderer *renderer) {
   Vertex vertices[] = {
     V(-.5f, 0.f, -.5f, 0.f, 1.f, 0.f, 0.f, 0.f),
     V(-.5f, 0.f, .5f, 0.f, 1.f, 0.f, 0.f, 1.f),
@@ -434,7 +438,7 @@ Model_Create_Result model_make_plane(Renderer *renderer, Material *material) {
       renderer,
       (Vertex_Array){.items = vertices, .len = 4},
       (Index_Array){.items = indices, .len = 6},
-      material
+      &renderer->default_material
   );
 }
 
@@ -444,16 +448,15 @@ Model_Create_Result model_load_from_geometry(
     Renderer *renderer,
     Vertex_Array vertices,
     Index_Array indices,
-    Material *material
+    Material *default_material
 ) {
-  assert(material != nullptr);
+  assert(default_material != nullptr);
 
   Model model = {
     .primitives =
         {
           [0] =
               (Mesh_Primitive){
-                .material_handle = material->handle,
                 .index_count = indices.len,
                 .gpu_vertices = gpu_buffer_append(
                     &renderer->geometry_buffer,
@@ -466,6 +469,10 @@ Model_Create_Result model_load_from_geometry(
                     sizeof(indices.items[0]) * indices.len
                 ),
               },
+        },
+    .default_materials =
+        {
+          [0] = default_material->handle,
         },
     .primitive_count = 1,
     .collider = get_vertex_array_aabb_collider(vertices),
@@ -550,9 +557,7 @@ Model_Create_Result model_load_gltf_from_file(
     assert(index_accessor != nullptr);
 
     usize index_count = index_accessor->count;
-    u32 *indices =
-        temp_allocator.alloc(temp_allocator, sizeof(u32) * index_count)
-            .allocation;
+    u32 *indices = unwrap(alloc(temp_allocator, sizeof(u32) * index_count));
 
     for (usize j = 0; j < index_count; j += 1) {
       cgltf_accessor_read_uint(index_accessor, j, &indices[j], 1);
@@ -564,7 +569,6 @@ Model_Create_Result model_load_gltf_from_file(
     assert(material_result.ok);
 
     model.primitives[i] = (Mesh_Primitive){
-      .material_handle = material_result.value.handle,
       .index_count = index_count,
       .gpu_vertices = gpu_buffer_append(
           &renderer->geometry_buffer,
@@ -576,6 +580,7 @@ Model_Create_Result model_load_gltf_from_file(
       ),
       .collider = get_vertex_array_aabb_collider(vertices),
     };
+    model.default_materials[i] = material_result.value.handle;
   }
 
   model.collider.min = vec3(INFINITY, INFINITY, INFINITY);
@@ -602,10 +607,7 @@ Model_Create_Result model_load_gltf_from_file(
 Mesh_Primitive_Create_Result mesh_primitive_load_from_geometry(
     Renderer *renderer, Mesh_Primitive_Create_Info *info
 ) {
-  assert(info->material != nullptr);
-
   Mesh_Primitive primitive = (Mesh_Primitive){
-    .material_handle = info->material->handle,
     .index_count = info->indices.len,
     .gpu_vertices = gpu_buffer_append(
         &renderer->geometry_buffer,

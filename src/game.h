@@ -4,6 +4,7 @@
 #include "core/allocator.h"
 #include "core/camera.h"
 #include "core/platform.h"
+#include "core/rand.h"
 #include "core/strings.h"
 #include "db.h"
 #include "hal.h"
@@ -210,6 +211,54 @@ typedef struct Entity {
 } Entity;
 
 ///////////////////////
+// Terrain
+///////////////////////
+typedef enum Voxel_Error {
+  Voxel_Error_None,
+  Voxel_Error_Failed_To_Create_Chunk,
+  Voxel_Error_Invalid_Create_Info,
+  Voxel_Error_Invalid_Coord,
+} Voxel_Error;
+
+typedef enum Voxel_Kind {
+  Voxel_Kind_Air,
+  Voxel_Kind_Dirt,
+} Voxel_Kind;
+
+typedef struct Voxel {
+  Voxel_Kind kind;
+} Voxel;
+
+typedef struct Voxel_Chunk {
+  u32 id;
+  Array(Voxel) data;
+  i32 width;
+  i32 height;
+  i32 depth;
+  f32 unit_width;
+  f32 unit_height;
+  f32 unit_depth;
+} Voxel_Chunk;
+
+typedef struct Voxel_Chunk_Create_Info {
+  u32 id;
+  i32 width;
+  i32 height;
+  i32 depth;
+  f32 unit_width;
+  f32 unit_height;
+  f32 unit_depth;
+} Voxel_Chunk_Create_Info;
+
+typedef Result(Voxel_Chunk, Voxel_Error) Voxel_Chunk_Create_Result;
+typedef Result(i32, Voxel_Error) Voxel_Index_Result;
+
+Voxel_Chunk_Create_Result
+make_voxel_chunk(Voxel_Chunk_Create_Info *info, Allocator allocator);
+Voxel_Index_Result
+voxel_chunk_query_index_from_coord(Voxel_Chunk *chunk, Vec3Int coord);
+
+///////////////////////
 // Scene
 ///////////////////////
 struct Scene {
@@ -222,6 +271,13 @@ struct Scene {
   // Cameras
   Orbit_Camera orbit_camera;
   Raw_Camera_State active_camera_state;
+
+  // Terrain shit
+  Voxel_Chunk tmp_chunk;
+
+  // PRNG and noise
+  PCG32_Generator voxel_rng_data;
+  Random_Generator voxel_rng;
 
   // Cached state
 };

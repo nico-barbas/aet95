@@ -213,12 +213,20 @@ test "clearing resets the document for reuse" {
     }
 }
 
-fn failingAlloc(_: doc.c.Allocator, _: usize) callconv(.c) doc.c.Allocation_Result {
-    return .{ .err = doc.c.Allocation_Error_Out_Of_Memory, .allocation = null };
+fn failingAlloc(
+    _: doc.c.Allocator,
+    _: usize,
+    _: [*c]const u8,
+    _: usize,
+) callconv(.c) doc.c.Allocation_Result {
+    return .{
+        .ok = 0,
+        .unnamed_0 = .{ .@"error" = doc.c.Allocation_Error_Out_Of_Memory },
+    };
 }
 
-fn noopFree(_: doc.c.Allocator, _: ?*anyopaque) callconv(.c) doc.c.Allocation_Result {
-    return .{ .err = doc.c.Allocation_Error_None, .allocation = null };
+fn noopFree(_: doc.c.Allocator, _: ?*anyopaque) callconv(.c) doc.c.Allocation_Error {
+    return doc.c.Allocation_Error_None;
 }
 
 test "a write that cannot allocate fails loudly and changes nothing" {
@@ -233,8 +241,8 @@ test "a write that cannot allocate fails loudly and changes nothing" {
     try mirror.appendSlice(std.testing.allocator, "abc");
     var cursor: usize = 1;
 
-    document.allocator.alloc = failingAlloc;
-    document.allocator.free = noopFree;
+    document.allocator.alloc_proc = failingAlloc;
+    document.allocator.free_proc = noopFree;
 
     // Writes succeed until the gap runs out and the buffer cannot grow. The
     // failing write must report the failure rather than corrupt the document.

@@ -38,20 +38,19 @@ make_document(Document_Create_Info *info, Allocator allocator) {
     return err(Document_Create_Result, Document_Error_Failed_To_Allocate);
   }
 
-  Allocation_Result alloc =
-      allocator.alloc(allocator, sizeof(byte) * initial_cap);
-  if (alloc.err != Allocation_Error_None) {
+  Allocation_Result buffer = alloc(allocator, sizeof(byte) * initial_cap);
+  if (!buffer.ok) {
     delete_document_line_list(&document.lines);
     return err(Document_Create_Result, Document_Error_Failed_To_Allocate);
   }
 
-  document.buffer = alloc.allocation;
+  document.buffer = buffer.value;
   return ok(Document_Create_Result, document);
 }
 
 void destroy_document(Document document) {
   delete_document_line_list(&document.lines);
-  document.allocator.free(document.allocator, document.buffer);
+  free_(document.allocator, document.buffer);
 }
 
 void document_clear_content(Document *document) {
@@ -88,13 +87,10 @@ document_clone_content(Document *document, Allocator allocator) {
   usize len = document_text_len(document);
   usize prefix_len = document->gap_start;
 
-  Allocation_Result alloc_result =
-      allocator.alloc(allocator, sizeof(char) * len);
-  if (alloc_result.err != Allocation_Error_None) {
-    return err(Document_Clone_Content_Result, Document_Error_Failed_To_Clone);
-  }
-
-  char *clone = (char *)alloc_result.allocation;
+  char *clone = (char *)or_return(
+      alloc(allocator, sizeof(char) * len),
+      err(Document_Clone_Content_Result, Document_Error_Failed_To_Clone)
+  );
   memcpy(clone, document->buffer, prefix_len * sizeof(char));
   memcpy(
       clone + prefix_len,
@@ -118,16 +114,13 @@ static Document_Error document_grow_buffer(Document *document) {
 
   usize new_cap = document->buffer_cap > 0 ? document->buffer_cap * 2 : 512;
 
-  Allocation_Result alloc =
-      document->allocator.alloc(document->allocator, sizeof(byte) * new_cap);
-  if (alloc.err != Allocation_Error_None) {
-    return Document_Error_Failed_To_Allocate;
-  }
-
-  document->buffer = alloc.allocation;
+  document->buffer = or_return(
+      alloc(document->allocator, sizeof(byte) * new_cap),
+      Document_Error_Failed_To_Allocate
+  );
   memmove(document->buffer, old_buffer, sizeof(byte) * document->buffer_cap);
   document->buffer_cap = new_cap;
-  document->allocator.free(document->allocator, old_buffer);
+  free_(document->allocator, old_buffer);
 
   return Document_Error_None;
 }
@@ -408,15 +401,10 @@ Document_Clone_Line_Content_Result document_line_content_clone_to_string(
 ) {
   usize len = content.head.len + content.tail.len;
 
-  Allocation_Result alloc_result =
-      allocator.alloc(allocator, len * sizeof(char));
-  if (alloc_result.err != Allocation_Error_None) {
-    return err(
-        Document_Clone_Line_Content_Result, Document_Error_Failed_To_Allocate
-    );
-  }
-
-  char *raw_str = (char *)alloc_result.allocation;
+  char *raw_str = (char *)or_return(
+      alloc(allocator, len * sizeof(char)),
+      err(Document_Clone_Line_Content_Result, Document_Error_Failed_To_Allocate)
+  );
   if (content.head.len > 0) {
     memcpy(raw_str, content.head.data, content.head.len * sizeof(char));
   }
