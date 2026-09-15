@@ -170,6 +170,27 @@ String_Result string_clone_terminated(String str, Allocator allocator) {
   );
 }
 
+String_Result string_concat(String a, String b, Allocator allocator) {
+  usize len = a.len + b.len;
+
+  char *result =
+      (char *)try(String_Result, alloc(allocator, sizeof(char) * len));
+
+  memcpy(result, a.data, sizeof(char) * a.len);
+  memcpy(result + a.len, b.data, sizeof(char) * b.len);
+
+  return ok(
+      String_Result,
+      ((String){
+        .ptr = result,
+        .data = result,
+        .len = len,
+        .is_owned = true,
+        .is_dynamically_allocated = true,
+      })
+  );
+}
+
 bool32 string_is_terminated(String str) {
   return (str.data[str.len] == '\0');
 }

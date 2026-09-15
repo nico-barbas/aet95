@@ -1119,7 +1119,7 @@ void destroy_gpu_sampler(GPU_Sampler sampler) {
   wgpuSamplerRelease(sampler.handle);
 }
 
-bool32 gpu_sampler_is_value(GPU_Sampler sampler) {
+bool32 gpu_sampler_is_valid(GPU_Sampler sampler) {
   return sampler.handle != nullptr;
 }
 

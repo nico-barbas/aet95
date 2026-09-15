@@ -65,9 +65,9 @@ static inline Fmt_Arg fmt_arg_fmt(Fmt_Arg v) {
 struct Fmt_Unsupported_Type;
 Fmt_Arg unsupported_fmt(void (*)(struct Fmt_Unsupported_Type));
 
-#define FMT(value)                                                                                                                                                                                                                                                                                                         \
-  _Generic((value), String: string_fmt, char *: cstring_fmt, const char *: cstring_fmt, char: char_fmt, bool8: bool8_fmt, bool32: bool32_fmt, u8: u8_fmt, u16: u16_fmt, u32: u32_fmt, u64: u64_fmt, i16: i16_fmt, i32: i32_fmt, i64: i64_fmt, f32: f32_fmt, f64: f64_fmt, Fmt_Arg: fmt_arg_fmt, default: unsupported_fmt)( \
-      value                                                                                                                                                                                                                                                                                                                \
+#define FMT(value)                                                                                                                                                                                                                                                                                                                           \
+  _Generic((value), String: string_fmt, char *: cstring_fmt, const char *: cstring_fmt, char: char_fmt, bool8: bool8_fmt, bool32: bool32_fmt, u8: u8_fmt, u16: u16_fmt, u32: u32_fmt, u64: u64_fmt, usize: usize_fmt, i16: i16_fmt, i32: i32_fmt, i64: i64_fmt, f32: f32_fmt, f64: f64_fmt, Fmt_Arg: fmt_arg_fmt, default: unsupported_fmt)( \
+      value                                                                                                                                                                                                                                                                                                                                  \
   )
 
 #define PARENS ()

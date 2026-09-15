@@ -448,10 +448,8 @@ Model_Create_Result model_load_from_geometry(
     Renderer *renderer,
     Vertex_Array vertices,
     Index_Array indices,
-    Material *default_material
+    Material_Handle default_material
 ) {
-  assert(default_material != nullptr);
-
   Model model = {
     .primitives =
         {

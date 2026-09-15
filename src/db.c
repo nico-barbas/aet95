@@ -1,16 +1,18 @@
 #include "db.h"
 
 #include "core/allocator.h"
-#include "core/array.h"
 #include "core/platform.h"
+#include "core/runtime.h"
 #include "core/strings.h"
 #include "core/types.h"
 #include "font.h"
-#include "render.h"
+#include "model.h"
 
 #include <assert.h>
 
 Database _db = {0};
+
+#define DB_GPU_ALLOCATOR_CAP (MEGABYTE * 128)
 
 /*
   NOTE(nico):
@@ -50,29 +52,47 @@ Database _db = {0};
 // TODO(nico): Provide a config struct that defines model repositories (gltf
 // files) and a lookup of repositories and node name per model id
 
-bool32 init_database(Renderer *renderer, Allocator allocator) {
-  _db.material_layout = unwrap(make_gpu_shader_group_layout(
-      &(GPU_Shader_Group_Layout_Create_Info){
-        .binds =
-            ARRAY_LIT(GPU_Shader_Bind_Info, SHADER_TEXTURE(), SHADER_SAMPLER())
-      },
-      allocator
-  ));
+Database_Error init_database(Allocator allocator) {
+  errdefer_scope;
 
-  Model_Create_Result cube_model_result = model_make_cube(renderer);
-  if (!cube_model_result.ok) {
-    return false;
+  _db.allocator = allocator;
+
+  _db.gpu_allocator = make_gpu_buffer(&(GPU_Buffer_Create_Info){
+    .size = DB_GPU_ALLOCATOR_CAP,
+    .usage = GPU_Buffer_Usage_Vertex | GPU_Buffer_Usage_Index |
+             GPU_Buffer_Usage_Copy_Dst,
+  });
+
+  if (!gpu_buffer_is_valid(_db.gpu_allocator)) {
+    return Database_Error_Failed_To_Initialize;
   }
+  errdefer {
+    destroy_gpu_buffer(_db.gpu_allocator);
+  };
 
-  _db.model_table[Model_ID_Default_Cube] = cube_model_result.value;
+  _db.model_table[Model_ID_Default_Cube] = or_return(
+      make_cube_model(&_db.gpu_allocator, 0),
+      Database_Error_Failed_To_Initialize
+  );
+  errdefer {
+    destroy_model(&_db.model_table[Model_ID_Default_Cube]);
+  };
 
   Font_Error font_err = init_font_atlas_from_file(
       &_db.font_table[Font_ID_IBMPlex_Mono],
       from_cstring("assets/fonts/IBMPlexMono-Regular.ttf"),
       allocator
   );
-  assert(font_err == Font_Error_None);
-  return true;
+
+  if (font_err != Font_Error_None) {
+    return Database_Error_Failed_To_Initialize;
+  }
+  errdefer {
+    destroy_font_atlas(&_db.font_table[Font_ID_IBMPlex_Mono]);
+  };
+
+  commit();
+  return Database_Error_None;
 }
 
 Database_Font_Query database_get_font_atlas_entry(Font_ID id, f32 size) {

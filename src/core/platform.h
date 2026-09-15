@@ -429,7 +429,7 @@ WGPUTextureView gpu_texture_derive_view(GPU_Texture texture);
 GPU_Sampler make_gpu_sampler(GPU_Sampler_Create_Info *info);
 void destroy_gpu_sampler(GPU_Sampler sampler);
 
-bool32 gpu_sampler_is_value(GPU_Sampler sampler);
+bool32 gpu_sampler_is_valid(GPU_Sampler sampler);
 
 ////////////////////////////////////
 // GPU Shader layout

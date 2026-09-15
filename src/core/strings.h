@@ -41,6 +41,7 @@ String from_cstring(const char *str);
 String string_slice(String src, usize lo, usize hi);
 String_Result string_clone(String str, Allocator allocator);
 String_Result string_clone_terminated(String str, Allocator allocator);
+String_Result string_concat(String a, String b, Allocator allocator);
 bool32 string_is_terminated(String str);
 bool32 string_equal(String s1, String s2);
 // FIXME(nico): Conversion procedures need to handle overflows gracefully

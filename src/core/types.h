@@ -33,6 +33,8 @@ static_assert(__FLT_MANT_DIG__ == 24);
 static_assert(__FLT_MAX_EXP__ == 128);
 static_assert(__DBL_MANT_DIG__ == 53);
 
+#define INF_F32 __builtin_inff()
+
 #ifdef __FAST_MATH__
 #error ("ffast-math not supported")
 #endif
