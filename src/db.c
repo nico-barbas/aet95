@@ -1,6 +1,7 @@
 #include "db.h"
 
 #include "core/allocator.h"
+#include "core/map.h"
 #include "core/platform.h"
 #include "core/runtime.h"
 #include "core/strings.h"
@@ -13,6 +14,8 @@
 Database _db = {0};
 
 #define DB_GPU_ALLOCATOR_CAP (MEGABYTE * 128)
+#define RESOURCE_SLOT_BACKING_INDEX_MASK 0x7FFFFFFFu
+#define RESOURCE_SLOT_FREE_BIT_MASK 0x80000000u
 
 /*
   NOTE(nico):
@@ -52,6 +55,14 @@ Database _db = {0};
 // TODO(nico): Provide a config struct that defines model repositories (gltf
 // files) and a lookup of repositories and node name per model id
 
+typedef Result(
+    Database_Resource_Handle, Database_Error
+) Database_Resource_Alloc_Result;
+
+static void database_clear();
+static Database_Resource_Alloc_Result
+database_alloc_resource(Database_Resource_Kind kind, usize size);
+
 Database_Error init_database(Allocator allocator) {
   errdefer_scope;
 
@@ -70,29 +81,100 @@ Database_Error init_database(Allocator allocator) {
     destroy_gpu_buffer(_db.gpu_allocator);
   };
 
-  _db.model_table[Model_ID_Default_Cube] = or_return(
-      make_cube_model(&_db.gpu_allocator, 0),
-      Database_Error_Failed_To_Initialize
-  );
-  errdefer {
-    destroy_model(&_db.model_table[Model_ID_Default_Cube]);
-  };
-
-  Font_Error font_err = init_font_atlas_from_file(
-      &_db.font_table[Font_ID_IBMPlex_Mono],
-      from_cstring("assets/fonts/IBMPlexMono-Regular.ttf"),
-      allocator
-  );
-
-  if (font_err != Font_Error_None) {
+  _db.stable_id_lookup =
+      make_u32_open_map(Database_Resource_Handle, RESOURCE_CAP, allocator);
+  if (_db.stable_id_lookup == nullptr) {
     return Database_Error_Failed_To_Initialize;
   }
   errdefer {
-    destroy_font_atlas(&_db.font_table[Font_ID_IBMPlex_Mono]);
+    delete_open_map(_db.stable_id_lookup);
   };
+
+  database_clear();
+
+  // _db.model_table[Model_ID_Default_Cube] = or_return(
+  //     make_cube_model(&_db.gpu_allocator, 0),
+  //     Database_Error_Failed_To_Initialize
+  // );
+  // errdefer {
+  //   destroy_model(&_db.model_table[Model_ID_Default_Cube]);
+  // };
+
+  // Font_Error font_err = init_font_atlas_from_file(
+  //     &_db.font_table[Font_ID_IBMPlex_Mono],
+  //     from_cstring("assets/fonts/IBMPlexMono-Regular.ttf"),
+  //     allocator
+  // );
+
+  // if (font_err != Font_Error_None) {
+  //   return Database_Error_Failed_To_Initialize;
+  // }
+  // errdefer {
+  //   destroy_font_atlas(&_db.font_table[Font_ID_IBMPlex_Mono]);
+  // };
 
   commit();
   return Database_Error_None;
+}
+
+static void database_clear() {
+  _db.cap = RESOURCE_CAP;
+  for (usize i = 0; i < _db.cap; i += 1) {
+    _db.table[i] = (Database_Resource_Slot){
+      .generation = 1,
+      .packed = RESOURCE_SLOT_FREE_BIT_MASK,
+    };
+  }
+}
+
+static Database_Resource_Alloc_Result
+database_alloc_resource(Database_Resource_Kind kind, usize size) {
+  if (_db.count >= _db.cap) {
+    return err(
+        Database_Resource_Alloc_Result, Database_Error_Resource_Capacity_Reached
+    );
+  }
+
+  u32 slot_index = 0;
+  bool32 slot_found = false;
+  for (usize i = 0; i < _db.cap; i += 1) {
+    if (_db.table[i].packed & RESOURCE_SLOT_FREE_BIT_MASK) {
+      slot_index = (u32)i;
+      slot_found = true;
+      break;
+    }
+  }
+
+  if (!slot_found) {
+    return err(
+        Database_Resource_Alloc_Result, Database_Error_Resource_Capacity_Reached
+    );
+  }
+  rawptr ptr = or_return(
+      alloc(_db.allocator, size),
+      err(Database_Resource_Alloc_Result, Database_Error_Failed_Alloc_Resource)
+  );
+
+  u32 backing_index = (u32)_db.count;
+  u32 generation = _db.table[slot_index].generation;
+
+  _db.table[slot_index] = (Database_Resource_Slot){
+    .generation = generation,
+    .packed = backing_index & RESOURCE_SLOT_BACKING_INDEX_MASK,
+  };
+
+  _db.resources[backing_index] = (Database_Resource){
+    .backing_index = backing_index,
+    .slot_index = slot_index,
+    .kind = kind,
+    .status = Database_Resource_Status_Loading,
+    .ptr = ptr,
+  };
+
+  return ok(
+      Database_Resource_Alloc_Result,
+      ((Database_Resource_Handle){.generation = generation, .id = slot_index})
+  );
 }
 
 Database_Font_Query database_get_font_atlas_entry(Font_ID id, f32 size) {
