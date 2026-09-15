@@ -92,6 +92,8 @@ void *open_map_next(Open_Map_Iterator *it);
 //////////////////////////////
 u64 open_map_u32_hash(const void *key, usize key_size);
 bool32 open_map_u32_eq(void *k1, void *k2);
+#define make_u32_open_map(V, cap, _allocator)                                  \
+  make_open_map(u32, V, cap, open_map_u32_hash, open_map_u32_eq, (_allocator))
 
 u64 open_map_string_hash(const void *key, usize key_size);
 bool32 open_map_string_eq(void *k1, void *k2);
