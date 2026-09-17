@@ -15,9 +15,6 @@
 #define DB_GPU_ALLOCATOR_CAP (MEGABYTE * 128)
 #define DB_RESOURCE_CAP 512
 
-#define RESOURCE_SLOT_BACKING_INDEX_MASK 0x7FFFFFFFu
-#define RESOURCE_SLOT_FREE_BIT_MASK 0x80000000u
-
 /*
   NOTE(nico):
   The goal of this system is to make asset and resource loading pain-free,
@@ -54,15 +51,12 @@
 */
 
 typedef struct Database_Resource {
-  u32 backing_index;
-  u32 slot_index;
-
+  u32 generation;
   Database_Resource_Kind kind;
   enum Database_Resource_Status {
     Database_Resource_Status_Empty,
     Database_Resource_Status_Loading,
     Database_Resource_Status_Ready,
-    Database_Resource_Status_Failed,
   } status;
   // rawptr ptr;
   union {
@@ -73,11 +67,6 @@ typedef struct Database_Resource {
   };
 } Database_Resource;
 
-typedef struct Database_Resource_Slot {
-  u32 generation;
-  u32 packed;
-} Database_Resource_Slot;
-
 typedef struct Database {
   Allocator allocator;
 
@@ -86,21 +75,18 @@ typedef struct Database {
   GPU_Buffer gpu_allocator;
 
   Database_Resource resources[DB_RESOURCE_CAP];
-  Database_Resource_Slot table[DB_RESOURCE_CAP];
-  usize count;
+  u32 free_list[DB_RESOURCE_CAP];
+  usize free_list_len;
   usize cap;
 
   Open_Map stable_id_lookup;
 } Database;
 
-typedef Result(Gen_Handle, Database_Error) Database_Resource_Alloc_Result;
 typedef Option(Database_Resource *) Database_Resource_Ptr_Option;
 
 static Database g_db = {0};
 
 static void database_clear(void);
-static Database_Resource_Alloc_Result
-database_alloc_resource(Database_Resource_Create_Info *info);
 static Database_Error database_free_resource(Gen_Handle handle);
 static void database_free_resource_data(Database_Resource *res);
 static Database_Resource_Ptr_Option
@@ -128,11 +114,6 @@ Database_Error init_database(Allocator allocator) {
     destroy_gpu_buffer(g_db.gpu_allocator);
   };
 
-  // if (init_material_cache(&g_db.material_cache, allocator) !=
-  //     Material_Error_None) {
-  //   return Database_Error_Failed_To_Initialize;
-  // }
-
   g_db.stable_id_lookup =
       make_u64_open_map(Gen_Handle, DB_RESOURCE_CAP, allocator);
   if (g_db.stable_id_lookup == nullptr) {
@@ -146,7 +127,7 @@ Database_Error init_database(Allocator allocator) {
 
   // Fonts
   Gen_Handle font_handle = or_return(
-      database_alloc_resource(&(Database_Resource_Create_Info){
+      database_create_resource(&(Database_Resource_Create_Info){
         .kind = Database_Resource_Kind_Font,
         .stable_id =
             some(Database_Stable_ID_Option, Font_Stable_ID_IBMPlex_Mono),
@@ -161,7 +142,7 @@ Database_Error init_database(Allocator allocator) {
   // Textures
   byte white_pixel[4] = {255, 255, 255, 255};
   Gen_Handle white_texture_handle = or_return(
-      database_alloc_resource(&(Database_Resource_Create_Info){
+      database_create_resource(&(Database_Resource_Create_Info){
         .kind = Database_Resource_Kind_Texture,
         .stable_id = some(Database_Stable_ID_Option, Texture_Stable_ID_White),
         .texture =
@@ -188,7 +169,7 @@ Database_Error init_database(Allocator allocator) {
     return Database_Error_Failed_To_Initialize;
   }
   Gen_Handle default_material_handle = or_return(
-      database_alloc_resource(&(Database_Resource_Create_Info){
+      database_create_resource(&(Database_Resource_Create_Info){
         .kind = Database_Resource_Kind_Material,
         .stable_id =
             some(Database_Stable_ID_Option, Material_Stable_Id_Default),
@@ -207,7 +188,7 @@ Database_Error init_database(Allocator allocator) {
 
   // Models
   Gen_Handle cube_handle = or_return(
-      database_alloc_resource(&(Database_Resource_Create_Info){
+      database_create_resource(&(Database_Resource_Create_Info){
         .kind = Database_Resource_Kind_Model,
         .stable_id =
             some(Database_Stable_ID_Option, Model_Stable_ID_Default_Cube),
@@ -242,59 +223,41 @@ Database_Error destroy_database() {
 // FIXME(nico): need to clean the underlying resources here
 static void database_clear(void) {
   g_db.cap = DB_RESOURCE_CAP;
-  for (usize i = 0; i < g_db.count; i += 1) {
-    database_free_resource_data(&g_db.resources[i]);
-  }
-
+  g_db.free_list_len = DB_RESOURCE_CAP;
   for (usize i = 0; i < g_db.cap; i += 1) {
-    g_db.table[i] = (Database_Resource_Slot){
-      .generation = 1,
-      .packed = RESOURCE_SLOT_FREE_BIT_MASK,
-    };
+    Database_Resource *res = &g_db.resources[i];
+    if (res->status != Database_Resource_Status_Empty) {
+      database_free_resource_data(res);
+    }
+    res->generation = 1;
+    res->status = Database_Resource_Status_Empty;
+    g_db.free_list[i] = (u32)i;
   }
 }
 
 // FIXME(nico): It is REALLY primordial for this operation to be atomic. It
 // CANNOT leave the db in a broken state
-static Database_Resource_Alloc_Result
-database_alloc_resource(Database_Resource_Create_Info *info) {
-  if (g_db.count >= g_db.cap) {
+Database_Create_Result
+database_create_resource(Database_Resource_Create_Info *info) {
+  errdefer_scope;
+
+  if (g_db.free_list_len == 0) {
     return err(
-        Database_Resource_Alloc_Result, Database_Error_Resource_Capacity_Reached
+        Database_Create_Result, Database_Error_Resource_Capacity_Reached
     );
   }
 
   if (info->kind >= Database_Resource_Kind_MAX) {
-    return err(
-        Database_Resource_Alloc_Result, Database_Error_Failed_Alloc_Resource
-    );
+    return err(Database_Create_Result, Database_Error_Failed_Alloc_Resource);
   }
 
-  u32 slot_index = 0;
-  bool32 slot_found = false;
-  for (usize i = 0; i < g_db.cap; i += 1) {
-    if (g_db.table[i].packed & RESOURCE_SLOT_FREE_BIT_MASK) {
-      slot_index = (u32)i;
-      slot_found = true;
-      break;
-    }
-  }
+  u32 id = g_db.free_list[g_db.free_list_len - 1];
 
-  if (!slot_found) {
-    return err(
-        Database_Resource_Alloc_Result, Database_Error_Resource_Capacity_Reached
-    );
-  }
-
-  u32 backing_index = (u32)g_db.count;
-  u32 generation = g_db.table[slot_index].generation;
-
-  Database_Resource *res = &g_db.resources[backing_index];
-  *res = (Database_Resource){
-    .backing_index = backing_index,
-    .slot_index = slot_index,
-    .kind = info->kind,
-    .status = Database_Resource_Status_Loading,
+  Database_Resource *res = &g_db.resources[id];
+  res->kind = info->kind;
+  res->status = Database_Resource_Status_Loading;
+  errdefer {
+    res->status = Database_Resource_Status_Empty;
   };
 
   // NOTE(nico): if streaming this is where the thread puts the notice to the db
@@ -305,21 +268,21 @@ database_alloc_resource(Database_Resource_Create_Info *info) {
     case Database_Resource_Kind_Model: {
       res->model = or_return(
           make_model(&info->model),
-          err(Database_Resource_Alloc_Result,
+          err(Database_Create_Result,
               Database_Error_Failed_To_Initialize_Resource)
       );
     } break;
     case Database_Resource_Kind_Texture: {
       res->texture = or_return(
           make_gpu_texture(&info->texture),
-          err(Database_Resource_Alloc_Result,
+          err(Database_Create_Result,
               Database_Error_Failed_To_Initialize_Resource)
       );
     } break;
     case Database_Resource_Kind_Material: {
       res->material = or_return(
           make_material(&info->material, g_db.allocator),
-          err(Database_Resource_Alloc_Result,
+          err(Database_Create_Result,
               Database_Error_Failed_To_Initialize_Resource)
       );
     } break;
@@ -329,8 +292,7 @@ database_alloc_resource(Database_Resource_Create_Info *info) {
       );
       if (err != Font_Error_None) {
         return err(
-            Database_Resource_Alloc_Result,
-            Database_Error_Failed_To_Initialize_Resource
+            Database_Create_Result, Database_Error_Failed_To_Initialize_Resource
         );
       }
     } break;
@@ -339,13 +301,10 @@ database_alloc_resource(Database_Resource_Create_Info *info) {
     }
   }
 
-  g_db.table[slot_index] = (Database_Resource_Slot){
-    .generation = generation,
-    .packed = backing_index & RESOURCE_SLOT_BACKING_INDEX_MASK,
-  };
-  g_db.count += 1;
+  res->status = Database_Resource_Status_Ready;
+  g_db.free_list_len -= 1;
 
-  Gen_Handle handle = (Gen_Handle){.generation = generation, .id = slot_index};
+  Gen_Handle handle = (Gen_Handle){.generation = res->generation, .id = id};
 
   if (info->stable_id.some) {
     open_map_set(
@@ -355,43 +314,24 @@ database_alloc_resource(Database_Resource_Create_Info *info) {
     );
   }
 
-  return ok(Database_Resource_Alloc_Result, handle);
+  return_ok(Database_Create_Result, handle);
 }
 
 // NOTE(nico): Same as alloc. It needs to be atomic
 static Database_Error database_free_resource(Gen_Handle handle) {
   if (handle.id >= g_db.cap ||
-      g_db.table[handle.id].generation != handle.generation) {
+      g_db.resources[handle.id].generation != handle.generation) {
     return Database_Error_Invalid_Handle;
   }
 
-  usize last_resource_index = g_db.count - 1;
-  usize last_slot_index = (usize)g_db.resources[last_resource_index].slot_index;
-  usize removed_resource_index =
-      (usize)(g_db.table[handle.id].packed & RESOURCE_SLOT_BACKING_INDEX_MASK);
-
-  if (g_db.resources[removed_resource_index].slot_index != handle.id) {
+  Database_Resource *res = &g_db.resources[handle.id];
+  if (res->status != Database_Resource_Status_Ready) {
     return Database_Error_Invalid_Handle;
   }
 
-  Database_Resource *res = &g_db.resources[removed_resource_index];
   database_free_resource_data(res);
-
-  g_db.table[handle.id] = (Database_Resource_Slot){
-    .generation = g_db.table[handle.id].generation + 1,
-    .packed = RESOURCE_SLOT_FREE_BIT_MASK,
-  };
-
-  if (removed_resource_index != last_resource_index) {
-    g_db.resources[removed_resource_index] =
-        g_db.resources[last_resource_index];
-    g_db.resources[removed_resource_index].backing_index =
-        (u32)removed_resource_index;
-    g_db.table[last_slot_index].packed =
-        (u32)removed_resource_index & RESOURCE_SLOT_BACKING_INDEX_MASK;
-  }
-
-  g_db.count -= 1;
+  res->generation += 1;
+  g_db.free_list[g_db.free_list_len++] = handle.id;
 
   return Database_Error_None;
 }
@@ -417,12 +357,10 @@ static void database_free_resource_data(Database_Resource *res) {
 static Database_Resource_Ptr_Option
 database_get_resource_ptr(Gen_Handle handle) {
   if (handle.id >= g_db.cap ||
-      g_db.table[handle.id].generation != handle.generation) {
+      g_db.resources[handle.id].generation != handle.generation) {
     return none(Database_Resource_Ptr_Option);
   }
-  u32 backing_index =
-      g_db.table[handle.id].packed & RESOURCE_SLOT_BACKING_INDEX_MASK;
-  return some(Database_Resource_Ptr_Option, &g_db.resources[backing_index]);
+  return some(Database_Resource_Ptr_Option, &g_db.resources[handle.id]);
 }
 
 Gen_Handle_Option
@@ -436,7 +374,7 @@ database_lookup_stable_id(Database_Resource_Kind kind, u32 stable_id) {
 
 Database_Model_Query database_query_model(Gen_Handle handle) {
   Database_Resource_Ptr_Option ptr_opt = database_get_resource_ptr(handle);
-  if (!ptr_opt.some && ptr_opt.value->kind == Database_Resource_Kind_Model) {
+  if (!ptr_opt.some || ptr_opt.value->kind != Database_Resource_Kind_Model) {
     return err(Database_Model_Query, Database_Error_Invalid_Handle);
   }
 
@@ -445,7 +383,7 @@ Database_Model_Query database_query_model(Gen_Handle handle) {
 
 Database_Material_Query database_query_material(Gen_Handle handle) {
   Database_Resource_Ptr_Option ptr_opt = database_get_resource_ptr(handle);
-  if (!ptr_opt.some && ptr_opt.value->kind == Database_Resource_Kind_Material) {
+  if (!ptr_opt.some || ptr_opt.value->kind != Database_Resource_Kind_Material) {
     return err(Database_Material_Query, Database_Error_Invalid_Handle);
   }
 
@@ -454,7 +392,7 @@ Database_Material_Query database_query_material(Gen_Handle handle) {
 
 Database_Texture_Query database_query_texture(Gen_Handle handle) {
   Database_Resource_Ptr_Option ptr_opt = database_get_resource_ptr(handle);
-  if (!ptr_opt.some && ptr_opt.value->kind == Database_Resource_Kind_Texture) {
+  if (!ptr_opt.some || ptr_opt.value->kind != Database_Resource_Kind_Texture) {
     return err(Database_Texture_Query, Database_Error_Invalid_Handle);
   }
 
@@ -463,7 +401,7 @@ Database_Texture_Query database_query_texture(Gen_Handle handle) {
 
 Database_Font_Atlas_Query database_query_font_atlas(Gen_Handle handle) {
   Database_Resource_Ptr_Option ptr_opt = database_get_resource_ptr(handle);
-  if (!ptr_opt.some && ptr_opt.value->kind == Database_Resource_Kind_Font) {
+  if (!ptr_opt.some || ptr_opt.value->kind != Database_Resource_Kind_Font) {
     return err(Database_Font_Atlas_Query, Database_Error_Invalid_Handle);
   }
 
