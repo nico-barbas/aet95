@@ -7,8 +7,8 @@
 #include "core/platform.h"
 #include "core/strings.h"
 #include "core/types.h"
+#include "db.h"
 #include "font.h"
-#include "render.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -38,7 +38,8 @@ static const char default_shader_2d[] = {
 static u64 hash_renderer_2d_state(Renderer_2D *renderer) {
   u64 hash = FNV1A_INITIAL_SEED;
   for (usize i = 0; i < Renderer_2D_Atlas_MAX; i += 1) {
-    hash = hash_fnv1a_stream(&renderer->current_handles[i], sizeof(u64), hash);
+    u64 packed = gen_handle_pack(renderer->res[i].handle);
+    hash = hash_fnv1a_stream(&packed, sizeof(u64), hash);
   }
 
   return hash;
@@ -52,7 +53,7 @@ static void renderer_2d_push_batch(Renderer_2D *renderer) {
   }
 
   renderer->batches[renderer->batch_count++] = (Renderer_2D_Batch){
-    .batch_group_data_handle = renderer->current_batch_group_data_handle,
+    .batch_group_data_handle = renderer->current_batch_data_handle,
     .offset = renderer->cpu_vertex_count,
     .len = 0,
   };
@@ -60,36 +61,19 @@ static void renderer_2d_push_batch(Renderer_2D *renderer) {
 
 static bool32
 renderer_2d_refresh_current_batch_group_data(Renderer_2D *renderer) {
-  Texture_Option blank_texture = query_texture(
-      renderer->it, renderer->current_handles[Renderer_2D_Atlas_Blank]
+  // FIXME(nico): handle this properly
+  GPU_Texture *blank_texture = unwrap(
+      database_query_texture(renderer->res[Renderer_2D_Atlas_Blank].handle)
   );
-  Font_Atlas_Option font = query_font_atlas(
-      renderer->it, renderer->current_handles[Renderer_2D_Atlas_Font]
+  GPU_Texture *sprite_texture = unwrap(
+      database_query_texture(renderer->res[Renderer_2D_Atlas_Sprite].handle)
   );
-  Texture_Option sprite_texture = query_texture(
-      renderer->it, renderer->current_handles[Renderer_2D_Atlas_Sprite]
+  Font_Atlas *font = unwrap(
+      database_query_font_atlas(renderer->res[Renderer_2D_Atlas_Font].handle)
   );
-
-  if (!blank_texture.some || !font.some || !sprite_texture.some) {
-    return false;
-  }
-
-  renderer->cached_info[Renderer_2D_Atlas_Blank].width =
-      (f32)blank_texture.value->width;
-  renderer->cached_info[Renderer_2D_Atlas_Blank].height =
-      (f32)blank_texture.value->height;
-  renderer->cached_info[Renderer_2D_Atlas_Sprite].width =
-      (f32)sprite_texture.value->width;
-  renderer->cached_info[Renderer_2D_Atlas_Sprite].height =
-      (f32)sprite_texture.value->height;
-  renderer->cached_info[Renderer_2D_Atlas_Font].font = font.value;
-  renderer->cached_info[Renderer_2D_Atlas_Font].width =
-      (f32)font.value->gpu_texture.width;
-  renderer->cached_info[Renderer_2D_Atlas_Font].height =
-      (f32)font.value->gpu_texture.width;
 
   if (open_map_get(
-          renderer->group_cache, renderer->current_batch_group_data_handle
+          renderer->group_cache, renderer->current_batch_data_handle
       ) == nullptr) {
     GPU_Shader_Group_Data batch_group_layout =
         unwrap(make_gpu_shader_group_data(
@@ -98,19 +82,26 @@ renderer_2d_refresh_current_batch_group_data(Renderer_2D *renderer) {
               .binds = ARRAY_LIT(
                   GPU_Shader_Bind_Data_Create_Info,
                   BIND_SAMPLER(renderer->sampler),
-                  BIND_TEXTURE(*blank_texture.value),
-                  BIND_TEXTURE(*sprite_texture.value),
-                  BIND_TEXTURE(font.value->gpu_texture),
+                  BIND_TEXTURE(*blank_texture),
+                  BIND_TEXTURE(*sprite_texture),
+                  BIND_TEXTURE(font->gpu_texture),
               )
             },
             renderer->allocator
         ));
     open_map_set(
         renderer->group_cache,
-        renderer->current_batch_group_data_handle,
+        renderer->current_batch_data_handle,
         batch_group_layout
     );
   }
+
+  renderer->res[Renderer_2D_Atlas_Blank].width = (f32)blank_texture->width;
+  renderer->res[Renderer_2D_Atlas_Blank].height = (f32)blank_texture->height;
+  renderer->res[Renderer_2D_Atlas_Sprite].width = (f32)sprite_texture->width;
+  renderer->res[Renderer_2D_Atlas_Sprite].height = (f32)sprite_texture->height;
+  renderer->res[Renderer_2D_Atlas_Font].width = (f32)font->gpu_texture.width;
+  renderer->res[Renderer_2D_Atlas_Font].height = (f32)font->gpu_texture.height;
 
   return true;
 }
@@ -119,7 +110,6 @@ void init_renderer_2d(
     Renderer_2D *renderer, Renderer_2D_Create_Info *info, Allocator allocator
 ) {
   renderer->allocator = allocator;
-  renderer->it = info->it;
   renderer->gpu_buffer = make_gpu_buffer(&(GPU_Buffer_Create_Info){
     .usage = GPU_Buffer_Usage_Copy_Dst | GPU_Buffer_Usage_Vertex |
              GPU_Buffer_Usage_Index | GPU_Buffer_Usage_Uniform,
@@ -240,13 +230,11 @@ void init_renderer_2d(
   assert(renderer->group_cache != nullptr);
 
   // TODO(nico): need to have a default shader group data
-  renderer->current_handles[Renderer_2D_Atlas_Blank] =
-      info->blank_texture_handle;
-  renderer->current_handles[Renderer_2D_Atlas_Font] = info->font_handle;
-  renderer->current_handles[Renderer_2D_Atlas_Sprite] = info->sprite_handle;
-  renderer->default_batch_group_data_handle = hash_renderer_2d_state(renderer);
-  renderer->current_batch_group_data_handle =
-      renderer->default_batch_group_data_handle;
+  renderer->res[Renderer_2D_Atlas_Blank].handle = info->blank_texture_handle;
+  renderer->res[Renderer_2D_Atlas_Font].handle = info->font_handle;
+  renderer->res[Renderer_2D_Atlas_Sprite].handle = info->sprite_handle;
+  renderer->default_batch_data_handle = hash_renderer_2d_state(renderer);
+  renderer->current_batch_data_handle = renderer->default_batch_data_handle;
 
   bool32 refresh_ok = renderer_2d_refresh_current_batch_group_data(renderer);
   assert(refresh_ok);
@@ -341,14 +329,14 @@ void end_render_2d(Renderer_2D *renderer) {
 }
 
 void renderer_2d_set_atlas_texture(
-    Renderer_2D *renderer, Renderer_2D_Atlas target, u64 resource_handle
+    Renderer_2D *renderer, Renderer_2D_Atlas target, Gen_Handle res_handle
 ) {
-  if (renderer->current_handles[target] == resource_handle) {
+  if (gen_handle_eq(renderer->res[target].handle, res_handle)) {
     return;
   }
 
-  renderer->current_handles[target] = resource_handle;
-  renderer->current_batch_group_data_handle = hash_renderer_2d_state(renderer);
+  renderer->res[target].handle = res_handle;
+  renderer->current_batch_data_handle = hash_renderer_2d_state(renderer);
   bool32 refresh_ok = renderer_2d_refresh_current_batch_group_data(renderer);
   assert(refresh_ok);
 
@@ -358,9 +346,11 @@ void renderer_2d_set_atlas_texture(
 void renderer_2d_draw_char(
     Renderer_2D *renderer, char c, Vec2 origin, f32 size, Color color
 ) {
-  Font_Atlas_Entry_Ptr_Option entry_opt = font_atlas_get_entry(
-      renderer->cached_info[Renderer_2D_Atlas_Font].font, size
+  Font_Atlas *font = unwrap(
+      database_query_font_atlas(renderer->res[Renderer_2D_Atlas_Font].handle)
   );
+
+  Font_Atlas_Entry_Ptr_Option entry_opt = font_atlas_get_entry(font, size);
   if (!entry_opt.some) {
     assert(false);
     return;
@@ -402,9 +392,11 @@ void renderer_2d_draw_char(
 void renderer_2d_draw_text(
     Renderer_2D *renderer, String text, Vec2 origin, f32 size, Color color
 ) {
-  Font_Atlas_Entry_Ptr_Option entry_opt = font_atlas_get_entry(
-      renderer->cached_info[Renderer_2D_Atlas_Font].font, size
+  Font_Atlas *font = unwrap(
+      database_query_font_atlas(renderer->res[Renderer_2D_Atlas_Font].handle)
   );
+
+  Font_Atlas_Entry_Ptr_Option entry_opt = font_atlas_get_entry(font, size);
   if (!entry_opt.some) {
     assert(false);
     return;
@@ -520,8 +512,8 @@ void renderer_2d_draw_quad(
     f32 rotation,
     Color color
 ) {
-  f32 w = renderer->cached_info[target].width;
-  f32 h = renderer->cached_info[target].height;
+  f32 w = renderer->res[target].width;
+  f32 h = renderer->res[target].height;
 
   f32 texture_index = (f32)target;
   Vec2 uv_min = vec2(src_rect.x / w, src_rect.y / h);

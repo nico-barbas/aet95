@@ -12,8 +12,8 @@
 #include "core/types.h"
 #include "db.h"
 #include "hal.h"
+#include "material.h"
 #include "model.h"
-#include "render.h"
 #include "render2d.h"
 #include "render3d.h"
 #include "view.h"
@@ -53,49 +53,6 @@ static bool32 parse_window_backend_env(App_Window_Backend *out) {
 #endif
 }
 
-static Material_Option
-query_material_impl(Render_Resource_Interface it, u64 handle) {
-  (void)it;
-  u32 generation = (u32)(handle >> 32);
-  u32 id = (u32)handle;
-  if (generation == 0) {
-    Database_Material_Query query = database_get_stable_material(id);
-    return query.ok ? some(Material_Option, query.value)
-                    : none(Material_Option);
-  } else {
-    return none(Material_Option);
-  }
-  return none(Material_Option);
-}
-
-static Texture_Option
-query_texture_impl(Render_Resource_Interface it, u64 handle) {
-  (void)it;
-  u32 generation = (u32)(handle >> 32);
-  u32 id = (u32)handle;
-  if (generation == 0) {
-    Database_Texture_Query query = database_get_stable_texture(id);
-    return query.ok ? some(Texture_Option, query.value) : none(Texture_Option);
-  } else {
-    return none(Texture_Option);
-  }
-}
-
-static Font_Atlas_Option
-query_font_atlas_impl(Render_Resource_Interface it, u64 handle) {
-  (void)it;
-  u32 generation = (u32)(handle >> 32);
-  u32 id = (u32)handle;
-  if (generation == 0) {
-    Database_Font_Query query = database_get_stable_font_atlas(id);
-    return query.ok ? some(Font_Atlas_Option, query.value)
-                    : none(Font_Atlas_Option);
-  } else {
-    return none(Font_Atlas_Option);
-  }
-  return none(Font_Atlas_Option);
-}
-
 ////////////////////////////////////
 // Actual game code
 ////////////////////////////////////
@@ -119,6 +76,11 @@ void init_game(void) {
   bool32 app_ok = init_app(&info, _game.global_allocator);
   assert(app_ok);
 
+  init_material_system(_game.global_allocator);
+
+  Database_Error db_err = init_database(_game.global_allocator);
+  assert(db_err == Database_Error_None);
+
 #if defined(DEBUG)
   init_debug_renderer(
       &_game.debug_renderer,
@@ -128,30 +90,29 @@ void init_game(void) {
   );
 #endif
 
-  Database_Error db_err = init_database(_game.global_allocator);
-  assert(db_err == Database_Error_None);
-
-  Render_Resource_Interface render_it = {
-    .query_material_proc = query_material_impl,
-    .query_texture_proc = query_texture_impl,
-    .query_font_atlas_proc = query_font_atlas_impl,
-  };
-
   init_renderer(
       &_game.renderer,
-      render_it,
+      // render_it,
       STARTUP_WINDOW_WIDTH,
       STARTUP_WINDOW_HEIGHT,
       _game.global_allocator
   );
 
+  Gen_Handle_Option font_handle_opt = database_lookup_stable_id(
+      Database_Resource_Kind_Font, Font_Stable_ID_IBMPlex_Mono
+  );
+  Gen_Handle_Option white_texture_handle_opt = database_lookup_stable_id(
+      Database_Resource_Kind_Texture, Texture_Stable_ID_White
+  );
+  assert(font_handle_opt.some && white_texture_handle_opt.some);
+
   init_renderer_2d(
       &_game.renderer_2d,
       &(Renderer_2D_Create_Info){
-        .it = render_it,
-        .font_handle = Font_Stable_ID_IBMPlex_Mono,
-        .blank_texture_handle = Texture_Stable_ID_White,
-        .sprite_handle = Texture_Stable_ID_White,
+        // .it = render_it,
+        .blank_texture_handle = white_texture_handle_opt.value,
+        .sprite_handle = white_texture_handle_opt.value,
+        .font_handle = font_handle_opt.value,
       },
       _game.global_allocator
   );
@@ -205,6 +166,8 @@ void close_game(void) {
 
   destroy_renderer(&_game.renderer);
   destroy_renderer_2d(&_game.renderer_2d);
+  destroy_database();
+  destroy_material_system();
   destroy_view();
 
   free_(_game.global_allocator, _game.frame_arena.buf);
@@ -221,13 +184,18 @@ void init_scene(Scene *scene, Allocator allocator) {
 
   scene_free_all_entites(scene);
 
+  Gen_Handle_Option cube_model_handle_opt = database_lookup_stable_id(
+      Database_Resource_Kind_Model, Model_Stable_ID_Default_Cube
+  );
+  assert(cube_model_handle_opt.some);
+
   // NOTE(nico): really awkward to initialize
   scene_add_entity(
       scene,
       &(Entity){
         .kind = Entity_Kind_Machine,
         .up = VEC3_UP,
-        .model_handle = Model_Stable_ID_Default_Cube,
+        .model_handle = cube_model_handle_opt.value,
         .machine = {0},
       }
   );
@@ -893,6 +861,11 @@ voxel_chunk_render(Voxel_Chunk *chunk, Renderer *renderer, Vec3 origin) {
   Vec3 unit_scale =
       vec3(chunk->unit_width, chunk->unit_height, chunk->unit_depth);
 
+  Gen_Handle_Option cube_model_handle_opt = database_lookup_stable_id(
+      Database_Resource_Kind_Model, Model_Stable_ID_Default_Cube
+  );
+  assert(cube_model_handle_opt.some);
+
   for (i32 z = 0; z < chunk->depth; z += 1) {
     for (i32 y = 0; y < chunk->height; y += 1) {
       for (i32 x = 0; x < chunk->width; x += 1) {
@@ -909,14 +882,11 @@ voxel_chunk_render(Voxel_Chunk *chunk, Renderer *renderer, Vec3 origin) {
         case Voxel_Kind_Air:
           break;
         case Voxel_Kind_Dirt:
-          Model *model = unwrap(database_get_stable_model(
-              (Model_Stable_ID)Model_Stable_ID_Default_Cube
-          ));
-
           draw_model(
               renderer,
               &(Model_Draw_Info){
-                .model = model,
+                .model =
+                    unwrap(database_query_model(cube_model_handle_opt.value)),
                 .transform =
                     mat4_from_trs(position, quat_identity(), unit_scale),
                 .color = color(1, 1, 1, 1),
@@ -1009,14 +979,10 @@ static void scene_render(Scene *scene, Renderer *renderer) {
 
     switch (entity->kind) {
     case Entity_Kind_Machine: {
-      Model *model = unwrap(
-          database_get_stable_model((Model_Stable_ID)entity->model_handle)
-      );
-
       draw_model(
           renderer,
           &(Model_Draw_Info){
-            .model = model,
+            .model = unwrap(database_query_model(entity->model_handle)),
             .transform = mat4_from_trs(
                 entity->position, entity->rotation, vec3(1, 1, 1)
             ),
@@ -1055,11 +1021,11 @@ void render_game(void) {
       &render_camera, (f32)_game.app.window_width, (f32)_game.app.window_height
   );
 
-  begin_render(&_game.renderer, &render_camera);
+  begin_render_3d(&_game.renderer, &render_camera);
 
   scene_render(scene, &_game.renderer);
 
-  end_render(&_game.renderer);
+  end_render_3d(&_game.renderer);
 
 #if defined(DEBUG)
   begin_debug_render(

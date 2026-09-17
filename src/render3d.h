@@ -7,7 +7,6 @@
 #include "core/math.h"
 #include "core/platform.h"
 #include "model.h"
-#include "render.h"
 
 /////////////////////////////////////
 // Actual rendering
@@ -20,7 +19,7 @@ typedef struct Instance_Data {
 } Instance_Data;
 
 typedef struct Renderer {
-  Render_Resource_Interface it;
+  // Render_Resource_Interface it;
 
   GPU_Texture depth_texture; // FIXME(nico): we'll use a offscreen target, so
                              // this need doesn't exists
@@ -46,15 +45,15 @@ typedef struct Renderer {
 
 void init_renderer(
     Renderer *renderer,
-    Render_Resource_Interface it,
+    // Render_Resource_Interface it,
     i32 render_w,
     i32 render_h,
     Allocator allocator
 );
 void destroy_renderer(Renderer *renderer);
 
-void begin_render(Renderer *renderer, Raw_Camera *camera);
-void end_render(Renderer *renderer);
+void begin_render_3d(Renderer *renderer, Raw_Camera *camera);
+void end_render_3d(Renderer *renderer);
 
 void draw_model(Renderer *renderer, Model_Draw_Info *info);
 void draw_mesh_primitive(Renderer *renderer, Mesh_Primitive_Draw_Info *info);

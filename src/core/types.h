@@ -142,4 +142,17 @@ static inline u32 bitmask_from_values_u32(u32 *values, usize len) {
     (res).value;                                                               \
   })
 
+typedef struct Gen_Handle {
+  u32 id;
+  u32 generation;
+} Gen_Handle;
+typedef Option(Gen_Handle) Gen_Handle_Option;
+
+static inline u64 gen_handle_pack(Gen_Handle handle) {
+  return (u64)handle.generation << 32 | (u64)handle.id;
+}
+
+#define gen_handle_eq(h1, h2)                                                  \
+  ((h1).generation == (h2).generation && (h1).id == (h2).id)
+
 #endif

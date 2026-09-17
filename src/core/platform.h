@@ -500,6 +500,7 @@ GPU_Shader_Layout_Create_Result
 make_gpu_shader_layout(GPU_Shader_Layout_Create_Info *info);
 GPU_Error destroy_gpu_shader_layout(GPU_Shader_Layout layout);
 
+bool32 gpu_shader_group_layout_is_valid(GPU_Shader_Group_Layout layout);
 bool32 gpu_shader_layout_is_valid(GPU_Shader_Layout layout);
 
 ////////////////////////////////////

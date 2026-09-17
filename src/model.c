@@ -336,7 +336,7 @@ Model_Error destroy_model(Model *model) {
   }
 
 Model_Create_Result
-make_cube_model(GPU_Buffer *gpu_allocator, Material_Handle default_material) {
+make_cube_model(GPU_Buffer *gpu_allocator, Gen_Handle default_material) {
   // 4 vertices per face for hard edges, CCW front faces
   Vertex vertices[] = {
     // +Y (top)
@@ -398,7 +398,7 @@ make_cube_model(GPU_Buffer *gpu_allocator, Material_Handle default_material) {
 }
 
 Model_Create_Result
-make_plane_model(GPU_Buffer *gpu_allocator, Material_Handle default_material) {
+make_plane_model(GPU_Buffer *gpu_allocator, Gen_Handle default_material) {
   Vertex vertices[] = {
     V(-.5f, 0.f, -.5f, 0.f, 1.f, 0.f, 0.f, 0.f),
     V(-.5f, 0.f, .5f, 0.f, 1.f, 0.f, 0.f, 1.f),

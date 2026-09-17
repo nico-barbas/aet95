@@ -1247,6 +1247,10 @@ GPU_Error destroy_gpu_shader_layout(GPU_Shader_Layout layout) {
   return GPU_Error_None;
 }
 
+bool32 gpu_shader_group_layout_is_valid(GPU_Shader_Group_Layout layout) {
+  return layout.handle != nullptr;
+}
+
 bool32 gpu_shader_layout_is_valid(GPU_Shader_Layout layout) {
   return layout.handle != nullptr;
 }

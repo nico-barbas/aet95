@@ -6,6 +6,7 @@
 #include "core/platform.h"
 #include "core/rand.h"
 #include "core/strings.h"
+#include "core/types.h"
 #include "hal.h"
 #include "render2d.h"
 #include "render3d.h"
@@ -189,7 +190,7 @@ typedef struct Entity {
   Entity_Flags flags;
   u32 slot_id;
 
-  u64 model_handle;
+  Gen_Handle model_handle;
 
 #if defined(ENTITY_SCENE_GRAPH_IMPL)
   Entity_Handle_Option parent;

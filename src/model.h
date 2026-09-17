@@ -1,10 +1,9 @@
 #ifndef MODEL_H
 #define MODEL_H
 
-#include "cgltf_parser.h"
 #include "core/physics.h"
 #include "core/platform.h"
-#include "material.h"
+#include "core/types.h"
 
 #define MESH_PRIMITIVE_CAP 16
 
@@ -37,7 +36,7 @@ typedef struct Mesh_Primitive {
 
 typedef struct Model {
   Mesh_Primitive primitives[MESH_PRIMITIVE_CAP];
-  Material_Handle default_materials[MESH_PRIMITIVE_CAP];
+  Gen_Handle default_materials[MESH_PRIMITIVE_CAP];
   AABB_Collider collider;
   usize primitive_count;
 } Model;
@@ -55,7 +54,7 @@ typedef struct Mesh_Primitive_Update_Info {
 
 typedef struct Mesh_Primitive_Draw_Info {
   Mesh_Primitive primitive;
-  Material_Handle material_handle;
+  Gen_Handle material_handle;
   Mat4 transform;
   Color color;
 } Mesh_Primitive_Draw_Info;
@@ -65,14 +64,14 @@ typedef struct Model_Create_Info {
   usize primitive_count;
   Vertex_Array cpu_vertices[MESH_PRIMITIVE_CAP];
   Index_Array cpu_indices[MESH_PRIMITIVE_CAP];
-  Material_Handle default_material[MESH_PRIMITIVE_CAP];
+  Gen_Handle default_material[MESH_PRIMITIVE_CAP];
 } Model_Create_Info;
 
 typedef struct Model_Draw_Info {
   Model *model;
   Mat4 transform;
   Color color;
-  Option(Material_Handle) material_handles[MESH_PRIMITIVE_CAP];
+  Option(Gen_Handle) material_handles[MESH_PRIMITIVE_CAP];
 } Model_Draw_Info;
 
 typedef Result(Model, Model_Error) Model_Create_Result;
@@ -85,8 +84,8 @@ Model_Error destroy_mesh_primitive(Mesh_Primitive *primitive);
 Model_Create_Result make_model(Model_Create_Info *info);
 Model_Error destroy_model(Model *model);
 Model_Create_Result
-make_cube_model(GPU_Buffer *gpu_allocator, Material_Handle default_material);
+make_cube_model(GPU_Buffer *gpu_allocator, Gen_Handle default_material);
 Model_Create_Result
-make_plane_model(GPU_Buffer *gpu_allocator, Material_Handle default_material);
+make_plane_model(GPU_Buffer *gpu_allocator, Gen_Handle default_material);
 
 #endif

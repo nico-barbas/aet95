@@ -178,8 +178,16 @@ static void process_element_render_commands(
 
 static Element_Dimensions
 measure_texture_wrapper(Element_Font el_font, String text) {
-  Database_Font_Query font_query =
-      database_get_stable_font_atlas((Font_Stable_ID)el_font.user_index);
+  Gen_Handle_Option font_handle_opt = database_lookup_stable_id(
+      Database_Resource_Kind_Font, (u32)el_font.user_index
+  );
+  assert(font_handle_opt.some);
+  if (!font_handle_opt.some) {
+    return (Element_Dimensions){0};
+  }
+
+  Database_Font_Atlas_Query font_query =
+      database_query_font_atlas(font_handle_opt.value);
   if (!font_query.ok) {
     return (Element_Dimensions){0};
   }
@@ -660,8 +668,12 @@ static void init_window(Window_Data *window, Allocator allocator) {
 
     f32 font_size = 18.f;
 
+    Gen_Handle_Option font_handle_opt = database_lookup_stable_id(
+        Database_Resource_Kind_Font, Font_Stable_ID_IBMPlex_Mono
+    );
+
     Font_Atlas *font_query =
-        unwrap(database_get_stable_font_atlas(Font_Stable_ID_IBMPlex_Mono));
+        unwrap(database_query_font_atlas(font_handle_opt.value));
 
     Font_Atlas_Entry_Ptr_Option font_entry_opt =
         font_atlas_get_entry(font_query, font_size);

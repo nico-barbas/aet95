@@ -6,9 +6,9 @@
 #include "core/math.h"
 #include "core/platform.h"
 #include "core/strings.h"
+#include "core/types.h"
 #include "db.h"
 #include "material.h"
-#include "render.h"
 
 #include <assert.h>
 #include <math.h>
@@ -36,13 +36,8 @@ static const char default_shader[] = {
 // Actual rendering
 /////////////////////////////////////
 void init_renderer(
-    Renderer *renderer,
-    Render_Resource_Interface it,
-    i32 render_w,
-    i32 render_h,
-    Allocator allocator
+    Renderer *renderer, i32 render_w, i32 render_h, Allocator allocator
 ) {
-  renderer->it = it;
   renderer->depth_texture =
       unwrap(make_gpu_depth_texture((u32)render_w, (u32)render_h));
 
@@ -77,12 +72,15 @@ void init_renderer(
       allocator
   ));
 
+  GPU_Shader_Group_Layout material_default_layout =
+      get_material_default_shader_group_layout();
+
   renderer->default_layout =
       unwrap(make_gpu_shader_layout(&(GPU_Shader_Layout_Create_Info){
         .groups = ARRAY_LIT(
             GPU_Shader_Group_Layout,
             renderer->global_group_layout,
-            database_get_default_material_shader_group_layout(),
+            material_default_layout,
         ),
       }));
 
@@ -216,7 +214,7 @@ void destroy_renderer(Renderer *renderer) {
   destroy_gpu_texture(renderer->depth_texture);
 }
 
-void begin_render(Renderer *renderer, Raw_Camera *camera) {
+void begin_render_3d(Renderer *renderer, Raw_Camera *camera) {
   Global_Storage_Data globals = {
     .mat_proj = camera->mat_proj,
     .mat_view = camera->mat_view,
@@ -242,7 +240,7 @@ void begin_render(Renderer *renderer, Raw_Camera *camera) {
   );
 }
 
-void end_render(Renderer *renderer) {
+void end_render_3d(Renderer *renderer) {
   gpu_buffer_write(
       renderer->gpu_instances_data,
       renderer->instances_data.items,
@@ -257,24 +255,15 @@ void draw_model(Renderer *renderer, Model_Draw_Info *info) {
   for (usize i = 0; i < info->model->primitive_count; i += 1) {
     Mesh_Primitive *primitive = &info->model->primitives[i];
 
-    Material_Handle material_handle = info->material_handles[i].some
-                                          ? info->material_handles[i].value
-                                          : info->model->default_materials[i];
+    Gen_Handle material_handle = info->material_handles[i].some
+                                     ? info->material_handles[i].value
+                                     : info->model->default_materials[i];
 
-    Material_Option material = query_material(renderer->it, material_handle);
-    if (!material.some) {
-      continue;
-    }
-    // u32 material_handle = info->materials[i].some
-    //                           ? info->materials[i].value
-    //                           : info->model.default_materials[i];
-    // Material *material =
-    //     open_map_get(renderer->material_cache, material_handle);
-    // assert(material != nullptr);
+    Material *material = unwrap(database_query_material(material_handle));
 
     gpu_render_pass_bind_group(
         renderer->_active_pass,
-        material.value->gpu_shader_data,
+        material->gpu_shader_data,
         MATERIAL_SHADER_DATA_INDEX
     );
     gpu_render_pass_draw_indexed(
@@ -299,16 +288,11 @@ void draw_model(Renderer *renderer, Model_Draw_Info *info) {
 void draw_mesh_primitive(Renderer *renderer, Mesh_Primitive_Draw_Info *info) {
   Mesh_Primitive primitive = info->primitive;
 
-  Material_Option material =
-      query_material(renderer->it, info->material_handle);
-
-  if (!material.some) {
-    return;
-  }
+  Material *material = unwrap(database_query_material(info->material_handle));
 
   gpu_render_pass_bind_group(
       renderer->_active_pass,
-      material.value->gpu_shader_data,
+      material->gpu_shader_data,
       MATERIAL_SHADER_DATA_INDEX
   );
   gpu_render_pass_draw_indexed(

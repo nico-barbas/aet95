@@ -6,8 +6,8 @@
 #include "core/map.h"
 #include "core/math.h"
 #include "core/platform.h"
+#include "core/types.h"
 #include "db.h"
-#include "render.h"
 
 #define RENDERER_2D_BATCH_CAP 64
 
@@ -64,7 +64,7 @@ typedef struct Renderer_2D_Batch {
 
 typedef struct Renderer_2D {
   Allocator allocator;
-  Render_Resource_Interface it;
+  // Render_Resource_Interface it;
 
   GPU_Buffer gpu_buffer;
   GPU_Buffer_Memory gpu_vertices;
@@ -87,26 +87,26 @@ typedef struct Renderer_2D {
   GPU_Sampler sampler;
   // NOTE(nico): We need 2 things. One is the current state of the texture used
   // and a cached list of possible texture combination
-  u64 default_batch_group_data_handle;
-  u64 current_batch_group_data_handle;
-  u64 current_handles[Renderer_2D_Atlas_MAX];
+  u64 default_batch_data_handle;
+  u64 current_batch_data_handle;
+  struct {
+    Gen_Handle handle;
+    f32 width;
+    f32 height;
+  } res[Renderer_2D_Atlas_MAX];
+
   Renderer_2D_Batch batches[RENDERER_2D_BATCH_CAP];
   usize batch_count;
   Open_Map group_cache;
-  struct {
-    Font_Atlas *font;
-    f32 width;
-    f32 height;
-  } cached_info[Renderer_2D_Atlas_MAX];
 
   GPU_Render_Pass _active_pass;
 } Renderer_2D;
 
 typedef struct Renderer_2D_Create_Info {
-  Render_Resource_Interface it;
-  u64 blank_texture_handle;
-  u64 font_handle;
-  u64 sprite_handle;
+  // Render_Resource_Interface it;
+  Gen_Handle blank_texture_handle;
+  Gen_Handle font_handle;
+  Gen_Handle sprite_handle;
 } Renderer_2D_Create_Info;
 
 void init_renderer_2d(
@@ -118,7 +118,7 @@ void begin_render_2d(Renderer_2D *renderer, f32 render_w, f32 render_h);
 void end_render_2d(Renderer_2D *renderer);
 
 void renderer_2d_set_atlas_texture(
-    Renderer_2D *renderer, Renderer_2D_Atlas target, u64 resource_handle
+    Renderer_2D *renderer, Renderer_2D_Atlas target, Gen_Handle res_handle
 );
 
 void renderer_2d_draw_char(
