@@ -6,93 +6,47 @@
 #include "font.h"
 #include "material.h"
 #include "model.h"
-// #include "render.h"
 
-typedef enum Database_Error {
+typedef enum Database_Error : u32 {
   Database_Error_None,
-  Database_Error_Invalid_Resource_ID,
+  Database_Error_Internal_Failure,
+  Database_Error_Invalid_Resource_Handle,
   Database_Error_Resource_Capacity_Reached,
   Database_Error_Failed_To_Initialize,
   Database_Error_Failed_Alloc_Resource,
   Database_Error_Failed_Stream_Resource,
+  Database_Error_Failed_To_Initialize_Resource,
 } Database_Error;
 
-// typedef enum Model_ID {
-//   Model_ID_Default_Cube,
-//   Model_ID_MAX,
-// } Model_ID;
+typedef enum Model_Stable_ID : u32 {
+  Model_Stable_ID_Default_Cube,
+} Model_Stable_ID;
 
-typedef enum Font_ID {
-  Font_ID_IBMPlex_Mono,
-  Font_ID_MAX,
-} Font_ID;
+typedef enum Font_Stable_ID {
+  Font_Stable_ID_IBMPlex_Mono,
+} Font_Stable_ID;
 
-// typedef enum Texture_ID {
-//   Texture_ID_MAX,
-// } Texture_ID;
+typedef enum Material_Stable_ID {
+  Material_Stable_Id_Default,
+} Material_Stable_ID;
 
-typedef enum Database_Resource_Kind {
-  Database_Resource_Kind_Model,
-  Database_Resource_Kind_Font,
-  Database_Resource_Kind_Texture,
-} Database_Resource_Kind;
+typedef enum Texture_Stable_ID {
+  Texture_Stable_ID_White,
+} Texture_Stable_ID;
 
-typedef struct Database_Resource_Handle {
-  u32 id;
-  u32 generation;
-} Database_Resource_Handle;
-
-typedef struct Database_Resource {
-  u32 backing_index;
-  u32 slot_index;
-
-  Database_Resource_Kind kind;
-  enum Database_Resource_Status {
-    Database_Resource_Status_Empty,
-    Database_Resource_Status_Loading,
-    Database_Resource_Status_Ready,
-    Database_Resource_Status_Failed,
-  } status;
-  rawptr ptr;
-} Database_Resource;
-
-typedef struct Database_Resource_Slot {
-  u32 generation;
-  u32 packed;
-} Database_Resource_Slot;
-
-// #define LIST_TYPE Resource
-// #define LIST_TYPE_NAME Resource_List
-// #define LIST_FUNCTION_PREFIX resource_list
-// #include "core/list.h"
-
-#define RESOURCE_CAP 512
-
-typedef struct Database {
-  Allocator allocator;
-
-  // NOTE(nico): This is an arena for now. When we move to streaming and on
-  // demand model uploading, I will write a free-list style gpu allocator
-  GPU_Buffer gpu_allocator;
-
-  Database_Resource resources[RESOURCE_CAP];
-  Database_Resource_Slot table[RESOURCE_CAP];
-  usize count;
-  usize cap;
-
-  Open_Map stable_id_lookup;
-  Material_Cache material_cache;
-
-  // Model model_table[Model_ID_MAX];
-  // Font_Atlas font_table[Font_ID_MAX];
-
-} Database;
-
-typedef Result(Font_Atlas_Entry *, Database_Error) Database_Font_Query;
-
-extern Database _db;
+typedef Result(Model *, Database_Error) Database_Model_Query;
+typedef Result(Font_Atlas *, Database_Error) Database_Font_Query;
+typedef Result(Material *, Database_Error) Database_Material_Query;
+typedef Result(GPU_Texture *, Database_Error) Database_Texture_Query;
 
 Database_Error init_database(Allocator allocator);
-Database_Font_Query database_get_font_atlas_entry(Font_ID id, f32 size);
+Database_Error destroy_database();
+
+GPU_Shader_Group_Layout database_get_default_material_shader_group_layout(void);
+
+Database_Model_Query database_get_stable_model(Model_Stable_ID id);
+Database_Font_Query database_get_stable_font_atlas(Font_Stable_ID id);
+Database_Material_Query database_get_stable_material(Material_Stable_ID id);
+Database_Texture_Query database_get_stable_texture(Texture_Stable_ID id);
 
 #endif

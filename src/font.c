@@ -222,6 +222,7 @@ void destroy_font_atlas(Font_Atlas *font) {
 }
 
 Font_Atlas_Entry_Ptr_Option font_atlas_get_entry(Font_Atlas *font, f32 size) {
+  Font_Atlas_Entry_Ptr_Option result = none(Font_Atlas_Entry_Ptr_Option);
   for (usize i = 0; i < font->cache.len; i += 1) {
     Font_Atlas_Entry *entry = &font->cache.items[i];
     if (entry->size == size) {
@@ -229,7 +230,18 @@ Font_Atlas_Entry_Ptr_Option font_atlas_get_entry(Font_Atlas *font, f32 size) {
     }
   }
 
-  return none(Font_Atlas_Entry_Ptr_Option);
+  if (!result.some) {
+    Font_Atlas_Entry_Load_Result entry_load_result =
+        font_atlas_load_font_size(font, size, heap_allocator());
+    if (!entry_load_result.ok) {
+      assert(false);
+      return result;
+    }
+
+    result = some(Font_Atlas_Entry_Ptr_Option, entry_load_result.value);
+  }
+
+  return result;
 }
 
 Font_Glyph_Option

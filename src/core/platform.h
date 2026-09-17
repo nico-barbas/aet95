@@ -450,14 +450,12 @@ typedef enum GPU_Shader_Bind_Kind {
 } GPU_Shader_Bind_Kind;
 
 typedef struct GPU_Shader_Bind_Info {
-  // u32 index;
   usize associated_size;
   GPU_Shader_Bind_Kind kind;
 } GPU_Shader_Bind_Info;
 
 typedef struct GPU_Shader_Group_Layout {
   WGPUBindGroupLayout handle;
-  // u32 index;
   Array(GPU_Shader_Bind_Info) binds;
 } GPU_Shader_Group_Layout;
 

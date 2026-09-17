@@ -153,7 +153,7 @@ typedef struct View_Model {
   Allocator frame_allocator;
   Arena_Data frame_arena;
 
-  Renderer2D *renderer; // Borrowed from the game state
+  Renderer_2D *renderer; // Borrowed from the game state
   Element_Context ctx;
   Window_Manager window_manager;
 
@@ -167,7 +167,7 @@ typedef struct View_Model {
 static View_Model g_model = {0};
 
 static void process_element_render_commands(
-    Renderer2D *renderer, Element_Render_Command_Buffer cmds
+    Renderer_2D *renderer, Element_Render_Command_Buffer cmds
 );
 
 // NOTE(nico): I want to completely isolate the UI from the simulation. The only
@@ -179,16 +179,19 @@ static void process_element_render_commands(
 static Element_Dimensions
 measure_texture_wrapper(Element_Font el_font, String text) {
   Database_Font_Query font_query =
-      database_get_font_atlas_entry((Font_ID)el_font.user_index, el_font.size);
+      database_get_stable_font_atlas((Font_Stable_ID)el_font.user_index);
   if (!font_query.ok) {
     return (Element_Dimensions){0};
   }
 
-  Vec2 dim = font_atlas_entry_measure_text(font_query.value, text);
+  Font_Atlas_Entry *font_entry =
+      font_atlas_get_entry(font_query.value, el_font.size).value;
+
+  Vec2 dim = font_atlas_entry_measure_text(font_entry, text);
   return (Element_Dimensions){.width = dim.x, .height = dim.y};
 }
 
-void init_view(Renderer2D *renderer) {
+void init_view(Renderer_2D *renderer) {
   g_model.global_allocator = heap_allocator();
 
   byte *frame_mem =
@@ -397,7 +400,7 @@ static void text_screen_delete_at_cursor(Text_Screen *screen, usize len) {
 }
 
 static void text_screen_render(
-    Text_Screen *screen, Renderer2D *renderer, Vec2 origin, Theme theme
+    Text_Screen *screen, Renderer_2D *renderer, Vec2 origin, Theme theme
 ) {
   f32 total_w = (f32)screen->width * screen->cell_width;
   f32 total_h = (f32)screen->height * screen->cell_height;
@@ -415,7 +418,7 @@ static void text_screen_render(
 
       Text_Cell *cell = array_get_ptr(screen->cells, index);
       if (cell->bg != Theme_Color_Transparent) {
-        draw_rect(
+        renderer_2d_draw_rect(
             renderer,
             (Rectangle){
               .x = physical_x,
@@ -431,7 +434,7 @@ static void text_screen_render(
         continue;
       }
 
-      draw_char(
+      renderer_2d_draw_char(
           renderer,
           (char)cell->content,
           vec2(physical_x, physical_y),
@@ -657,14 +660,17 @@ static void init_window(Window_Data *window, Allocator allocator) {
 
     f32 font_size = 18.f;
 
-    Database_Font_Query font_query =
-        database_get_font_atlas_entry(Font_ID_IBMPlex_Mono, font_size);
+    Font_Atlas *font_query =
+        unwrap(database_get_stable_font_atlas(Font_Stable_ID_IBMPlex_Mono));
+
+    Font_Atlas_Entry_Ptr_Option font_entry_opt =
+        font_atlas_get_entry(font_query, font_size);
 
     f32 cell_width = font_size;
     f32 cell_height = font_size;
-    if (font_query.ok) {
-      cell_width = roundf(font_query.value->max_advance);
-      cell_height = font_query.value->line_height;
+    if (font_entry_opt.some) {
+      cell_width = roundf(font_entry_opt.value->max_advance);
+      cell_height = font_entry_opt.value->line_height;
     }
 
     editor->document = unwrap(
@@ -1125,7 +1131,7 @@ static void code_editor_view(Window_Data *window) {
         .style = {
           .base.linears.font_size = 18.f,
           .base.colors.text = ISW_BG0,
-          .font_index = Font_ID_IBMPlex_Mono,
+          .font_index = Font_Stable_ID_IBMPlex_Mono,
         },
       }));
     }
@@ -1193,7 +1199,7 @@ static void code_editor_view(Window_Data *window) {
       .style = {
         .base.linears.font_size = 18.f,
         .base.colors.text = ISW_BG0,
-        .font_index = Font_ID_IBMPlex_Mono,
+        .font_index = Font_Stable_ID_IBMPlex_Mono,
       },
     }));
 
@@ -1213,7 +1219,7 @@ static void code_editor_view(Window_Data *window) {
       .style = {
         .base.linears.font_size = 18.f,
         .base.colors.text = ISW_BG0,
-        .font_index = Font_ID_IBMPlex_Mono,
+        .font_index = Font_Stable_ID_IBMPlex_Mono,
       },
     }));
   }
@@ -1286,7 +1292,7 @@ static Window_Events window_view(Window_Data *window) {
         .style = {
           .base.linears.font_size = 18.f,
           .base.colors.text = ISW_CREAM_LIGHT0,
-          .font_index = Font_ID_IBMPlex_Mono,
+          .font_index = Font_Stable_ID_IBMPlex_Mono,
         },
       }));
     }
@@ -1301,7 +1307,7 @@ static Window_Events window_view(Window_Data *window) {
 }
 
 static void draw_rect_bevel_outline(
-    Renderer2D *renderer,
+    Renderer_2D *renderer,
     Rectangle rect,
     f32 thickness,
     Element_Variable_Color color
@@ -1315,7 +1321,7 @@ static void draw_rect_bevel_outline(
     return;
   }
 
-  draw_rect(
+  renderer_2d_draw_rect(
       renderer,
       (Rectangle){
         .x = rect.x,
@@ -1325,7 +1331,7 @@ static void draw_rect_bevel_outline(
       },
       color.cardinal[Cardinality_Top]
   );
-  draw_rect(
+  renderer_2d_draw_rect(
       renderer,
       (Rectangle){
         .x = rect.x + rect.width - t,
@@ -1335,7 +1341,7 @@ static void draw_rect_bevel_outline(
       },
       color.cardinal[Cardinality_Right]
   );
-  draw_rect(
+  renderer_2d_draw_rect(
       renderer,
       (Rectangle){
         .x = rect.x,
@@ -1345,7 +1351,7 @@ static void draw_rect_bevel_outline(
       },
       color.cardinal[Cardinality_Bottom]
   );
-  draw_rect(
+  renderer_2d_draw_rect(
       renderer,
       (Rectangle){
         .x = rect.x,
@@ -1358,7 +1364,7 @@ static void draw_rect_bevel_outline(
 }
 
 static void process_element_render_commands(
-    Renderer2D *renderer, Element_Render_Command_Buffer cmds
+    Renderer_2D *renderer, Element_Render_Command_Buffer cmds
 ) {
   for (usize i = 0; i < cmds.len; i += 1) {
     Element_Render_Command cmd = cmds.items[i];
@@ -1368,7 +1374,7 @@ static void process_element_render_commands(
       // NOTE(nico): hard crash for now until the feature is implemented in the
       // 2d renderer
       assert(cmd.rectangle.radius == 0.f);
-      draw_rect(renderer, cmd.rectangle.rect, cmd.rectangle.color);
+      renderer_2d_draw_rect(renderer, cmd.rectangle.rect, cmd.rectangle.color);
 
       if (cmd.rectangle.border > 0.f) {
         if (cmd.rectangle.border_color.is_cardinal) {
@@ -1379,7 +1385,7 @@ static void process_element_render_commands(
               cmd.rectangle.border_color
           );
         } else {
-          draw_rect_outline(
+          renderer_2d_draw_rect_outline(
               renderer,
               cmd.rectangle.rect,
               cmd.rectangle.border,
@@ -1394,9 +1400,9 @@ static void process_element_render_commands(
     case Element_Render_Command_Text: {
       // NOTE(nico): hard crash for now. Still no multi-font supported in a
       // single pass
-      assert(cmd.text.font.user_index == Font_ID_IBMPlex_Mono);
+      assert(cmd.text.font.user_index == Font_Stable_ID_IBMPlex_Mono);
 
-      draw_text(
+      renderer_2d_draw_text(
           renderer,
           cmd.text.chars,
           cmd.text.origin,

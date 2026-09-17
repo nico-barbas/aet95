@@ -223,7 +223,7 @@ void *open_map_next(Open_Map_Iterator *it) {
   return it->value;
 }
 
-bool32 open_map_remove_raw(Open_Map map, void *key) {
+bool32 open_map_remove_raw(Open_Map map, const void *key) {
   Open_Map_Header *header = open_map_header(map);
 
   u64 hash = header->hash(key, header->key_size);
@@ -262,10 +262,19 @@ u64 open_map_u32_hash(const void *key, usize key_size) {
   return hash_fnv1a(key, sizeof(u32));
 }
 
-bool32 open_map_u32_eq(void *k1, void *k2) {
-  u32 *a = (u32 *)k1;
-  u32 *b = (u32 *)k2;
+bool32 open_map_u32_eq(const void *k1, const void *k2) {
+  const u32 *a = (const u32 *)k1;
+  const u32 *b = (const u32 *)k2;
   return (*a) == (*b);
+}
+
+u64 open_map_u64_hash(const void *key, usize key_size) {
+  (void)key_size;
+  return hash_fnv1a(key, sizeof(u64));
+}
+
+bool32 open_map_u64_eq(const void *k1, const void *k2) {
+  return (*(const u64 *)k1) == (*(const u64 *)k2);
 }
 
 u64 open_map_string_hash(const void *key, usize key_size) {
@@ -274,9 +283,9 @@ u64 open_map_string_hash(const void *key, usize key_size) {
   return hash_fnv1a(str->data, str->len);
 }
 
-bool32 open_map_string_eq(void *k1, void *k2) {
-  String *s1 = (String *)k1;
-  String *s2 = (String *)k2;
+bool32 open_map_string_eq(const void *k1, const void *k2) {
+  const String *s1 = (const String *)k1;
+  const String *s2 = (const String *)k2;
 
   return string_equal(*s1, *s2);
 }

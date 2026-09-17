@@ -39,13 +39,25 @@ i32 sign_extend_i32(u32 value, u32 bits) {
 }
 
 u64 hash_fnv1a(const void *data, usize size) {
-  u64 hash = 14695981039346656037ULL; // FNV offset basis
+  u64 hash = FNV1A_INITIAL_SEED; // FNV offset basis
   const byte *buf = (const byte *)data;
 
   for (usize i = 0; i < size; i += 1) {
     hash ^= buf[i];
-    hash *= 1099511628211ULL; // FNV prime
+    hash *= 0x100000001b3; // FNV prime
   }
+  return hash;
+}
+
+u64 hash_fnv1a_stream(const void *data, usize size, u64 seed) {
+  u64 hash = seed;
+  const byte *buf = (const byte *)data;
+
+  for (usize i = 0; i < size; i += 1) {
+    hash ^= buf[i];
+    hash *= 0x100000001b3;
+  }
+
   return hash;
 }
 

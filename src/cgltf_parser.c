@@ -1,4 +1,5 @@
-#include "cglt_parser.h"
+#include "cgltf_parser.h"
+
 #include "cgltf.h"
 #include "core/array.h"
 #include "core/fmt.h"

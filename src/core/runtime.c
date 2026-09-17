@@ -8,6 +8,10 @@
 // entirely and the symbol is not referenced at all; this only carries -O0
 // Debug builds.
 //
+// A body that captures no locals (only touches globals, e.g. g_db) is laid
+// out as a static global block instead, whose isa is _NSConcreteGlobalBlock.
+// Same deal: stored, never dereferenced, so the same stub covers it.
+//
 // Apple platforms ship the real BlocksRuntime in libSystem, and defining our
 // own there would interpose on it.
 //
@@ -22,4 +26,6 @@
 // neither renamed nor given internal linkage.
 // NOLINTNEXTLINE(bugprone-reserved-identifier,misc-use-internal-linkage,cert-dcl37-c,cert-dcl51-cpp)
 void *_NSConcreteStackBlock[32] = {0};
+// NOLINTNEXTLINE(bugprone-reserved-identifier,misc-use-internal-linkage,cert-dcl37-c,cert-dcl51-cpp)
+void *_NSConcreteGlobalBlock[32] = {0};
 #endif

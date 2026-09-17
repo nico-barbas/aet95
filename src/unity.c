@@ -1,6 +1,7 @@
 // Jumbo build
 
 #include "asm.c"
+#include "cgltf_parser.c"
 #include "core/allocator.c"
 #include "core/camera.c"
 #include "core/fmt.c"
@@ -19,7 +20,9 @@
 #include "game.c"
 #include "hal.c"
 #include "main.c"
-#include "render.c"
+#include "material.c"
+#include "model.c"
 #include "render2d.c"
+#include "render3d.c"
 #include "tools.c"
 #include "view.c"

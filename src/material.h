@@ -24,7 +24,7 @@ typedef struct Material_Cache {
   Open_Map materials;
 } Material_Cache;
 
-typedef u32 Material_Handle;
+typedef u64 Material_Handle;
 
 typedef struct Material {
   Material_Handle handle;
@@ -48,6 +48,7 @@ typedef struct Material_Create_Info {
 } Material_Create_Info;
 
 typedef Result(Material_Handle, Material_Error) Material_Create_Result;
+typedef Result(Material *, Material_Error) Material_Query_Result;
 
 Material_Error init_material_cache(Material_Cache *cache, Allocator allocator);
 void destroy_material_cache(Material_Cache *cache);
@@ -56,5 +57,7 @@ Material_Create_Result
 material_cache_make_material(Material_Cache *cache, Material_Create_Info *info);
 Material_Error
 material_cache_destroy_material(Material_Cache *cache, Material_Handle handle);
+Material_Query_Result
+material_cache_query_material(Material_Cache *cache, Material_Handle handle);
 
 #endif

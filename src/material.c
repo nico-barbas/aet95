@@ -22,7 +22,7 @@ Material_Error init_material_cache(Material_Cache *cache, Allocator allocator) {
       Material_Error_Failed_To_Create_Cache
   );
 
-  cache->materials = make_u32_open_map(Material, 32, allocator);
+  cache->materials = make_u64_open_map(Material, 32, allocator);
 
   return Material_Error_None;
 }
@@ -105,6 +105,15 @@ material_cache_destroy_material(Material_Cache *cache, Material_Handle handle) {
 
   destroy_gpu_sampler(material->gpu_sampler);
   destroy_gpu_shader_group_data(material->gpu_shader_data);
+  open_map_remove(cache->materials, handle);
 
   return Material_Error_None;
+}
+
+Material_Query_Result
+material_cache_query_material(Material_Cache *cache, Material_Handle handle) {
+  Material *material = open_map_get(cache->materials, handle);
+  return material != nullptr
+             ? ok(Material_Query_Result, material)
+             : err(Material_Query_Result, Material_Error_Invalid_Handle);
 }

@@ -6,10 +6,9 @@
 #include "core/platform.h"
 #include "core/rand.h"
 #include "core/strings.h"
-#include "db.h"
 #include "hal.h"
-#include "render.h"
 #include "render2d.h"
+#include "render3d.h"
 
 /*
   NOTE(nico):
@@ -190,7 +189,7 @@ typedef struct Entity {
   Entity_Flags flags;
   u32 slot_id;
 
-  Model_ID model;
+  u64 model_handle;
 
 #if defined(ENTITY_SCENE_GRAPH_IMPL)
   Entity_Handle_Option parent;
@@ -285,7 +284,7 @@ struct Scene {
 typedef struct Game_State {
   App app;
   Renderer renderer;
-  Renderer2D renderer_2d;
+  Renderer_2D renderer_2d;
 #if defined(DEBUG)
   Debug_Renderer debug_renderer;
 #endif

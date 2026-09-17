@@ -101,7 +101,7 @@ typedef struct View_Outbound_Event {
   } kind;
 } View_Outbound_Event;
 
-void init_view(Renderer2D *renderer);
+void init_view(Renderer_2D *renderer);
 void destroy_view(void);
 void update_view(void);
 void render_view(f32 render_w, f32 render_h);

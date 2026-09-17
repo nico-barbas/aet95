@@ -3,6 +3,8 @@
 
 #include "core/types.h"
 
+#define FNV1A_INITIAL_SEED 0xcbf29ce484222325
+
 //////////////////////////////////
 // Other math
 //////////////////////////////////
@@ -13,6 +15,7 @@ f64 u64_to_f64(u64 bits);
 i32 sign_extend_i32(u32 value, u32 bits);
 
 u64 hash_fnv1a(const void *data, usize size);
+u64 hash_fnv1a_stream(const void *data, usize size, u64 seed);
 
 //////////////////////////////////
 // Generic math

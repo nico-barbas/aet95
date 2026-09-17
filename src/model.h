@@ -1,6 +1,7 @@
 #ifndef MODEL_H
 #define MODEL_H
 
+#include "cgltf_parser.h"
 #include "core/physics.h"
 #include "core/platform.h"
 #include "material.h"
@@ -10,8 +11,6 @@
 typedef enum Model_Error {
   Model_Error_None,
   Model_Error_Invalid_Data,
-  Model_Error_Invalid_GLTF_File,
-  Model_Error_Failed_To_Create_From_GLTF_File,
 } Model_Error;
 
 // NOTE(nico): until we have a more defined gpu allocator type, pass the gpu
@@ -38,7 +37,7 @@ typedef struct Mesh_Primitive {
 
 typedef struct Model {
   Mesh_Primitive primitives[MESH_PRIMITIVE_CAP];
-  u32 default_materials[MESH_PRIMITIVE_CAP];
+  Material_Handle default_materials[MESH_PRIMITIVE_CAP];
   AABB_Collider collider;
   usize primitive_count;
 } Model;
@@ -56,38 +55,24 @@ typedef struct Mesh_Primitive_Update_Info {
 
 typedef struct Mesh_Primitive_Draw_Info {
   Mesh_Primitive primitive;
-  u32 material_handle;
+  Material_Handle material_handle;
   Mat4 transform;
   Color color;
 } Mesh_Primitive_Draw_Info;
 
 typedef struct Model_Create_Info {
   GPU_Buffer *gpu_allocator;
-  enum Model_Create_Source {
-    Model_Create_Source_Raw_Geometry,
-    Model_Create_Source_GLTF_File,
-  } kind;
-  union {
-    struct {
-      rawptr data; // NOTE(nico): Wtf is this?
-      String root_path;
-      String model_name;
-      Material_Cache *material_cache;
-    } gltf;
-    struct {
-      Vertex_Array cpu_vertices;
-      Index_Array cpu_indices;
-      Material_Handle default_material;
-    } raw;
-  };
-  // String model_name; ??????
+  usize primitive_count;
+  Vertex_Array cpu_vertices[MESH_PRIMITIVE_CAP];
+  Index_Array cpu_indices[MESH_PRIMITIVE_CAP];
+  Material_Handle default_material[MESH_PRIMITIVE_CAP];
 } Model_Create_Info;
 
 typedef struct Model_Draw_Info {
-  Model model;
+  Model *model;
   Mat4 transform;
   Color color;
-  Option(u32) materials[MESH_PRIMITIVE_CAP];
+  Option(Material_Handle) material_handles[MESH_PRIMITIVE_CAP];
 } Model_Draw_Info;
 
 typedef Result(Model, Model_Error) Model_Create_Result;

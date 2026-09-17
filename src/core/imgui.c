@@ -79,9 +79,9 @@ static u64 element_id_mix(u64 acc, u64 value) {
   return h;
 }
 
-static bool32 element_id_eq(void *h1, void *h2) {
-  u64 *_h1 = (u64 *)h1;
-  u64 *_h2 = (u64 *)h2;
+static bool32 element_id_eq(const void *h1, const void *h2) {
+  const u64 *_h1 = (const u64 *)h1;
+  const u64 *_h2 = (const u64 *)h2;
 
   return *_h1 == *_h2;
 }
