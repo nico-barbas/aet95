@@ -87,8 +87,7 @@ typedef Option(Database_Resource *) Database_Resource_Ptr_Option;
 static Database g_db = {0};
 
 static void database_clear(void);
-static Database_Error database_free_resource(Gen_Handle handle);
-static void database_free_resource_data(Database_Resource *res);
+static void detabase_destroy_resource_data(Database_Resource *res);
 static Database_Resource_Ptr_Option
 database_get_resource_ptr(Gen_Handle handle);
 
@@ -136,7 +135,7 @@ Database_Error init_database(Allocator allocator) {
       Database_Error_Failed_To_Initialize
   );
   errdefer {
-    database_free_resource(font_handle);
+    detabase_destroy_resource(font_handle);
   };
 
   // Textures
@@ -157,7 +156,7 @@ Database_Error init_database(Allocator allocator) {
       Database_Error_Failed_To_Initialize
   );
   errdefer {
-    database_free_resource(white_texture_handle);
+    detabase_destroy_resource(white_texture_handle);
   };
 
   // Materials
@@ -183,7 +182,7 @@ Database_Error init_database(Allocator allocator) {
       Database_Error_Failed_To_Initialize
   );
   errdefer {
-    database_free_resource(default_material_handle);
+    detabase_destroy_resource(default_material_handle);
   };
 
   // Models
@@ -197,7 +196,7 @@ Database_Error init_database(Allocator allocator) {
       Database_Error_Failed_To_Initialize
   );
   errdefer {
-    database_free_resource(cube_handle);
+    detabase_destroy_resource(cube_handle);
   };
 
   Database_Resource_Ptr_Option cube_resource_opt =
@@ -227,7 +226,7 @@ static void database_clear(void) {
   for (usize i = 0; i < g_db.cap; i += 1) {
     Database_Resource *res = &g_db.resources[i];
     if (res->status != Database_Resource_Status_Empty) {
-      database_free_resource_data(res);
+      detabase_destroy_resource_data(res);
     }
     res->generation = 1;
     res->status = Database_Resource_Status_Empty;
@@ -318,7 +317,7 @@ database_create_resource(Database_Resource_Create_Info *info) {
 }
 
 // NOTE(nico): Same as alloc. It needs to be atomic
-static Database_Error database_free_resource(Gen_Handle handle) {
+Database_Error detabase_destroy_resource(Gen_Handle handle) {
   if (handle.id >= g_db.cap ||
       g_db.resources[handle.id].generation != handle.generation) {
     return Database_Error_Invalid_Handle;
@@ -329,14 +328,14 @@ static Database_Error database_free_resource(Gen_Handle handle) {
     return Database_Error_Invalid_Handle;
   }
 
-  database_free_resource_data(res);
+  detabase_destroy_resource_data(res);
   res->generation += 1;
   g_db.free_list[g_db.free_list_len++] = handle.id;
 
   return Database_Error_None;
 }
 
-static void database_free_resource_data(Database_Resource *res) {
+static void detabase_destroy_resource_data(Database_Resource *res) {
   switch (res->kind) {
   case Database_Resource_Kind_Model:
     destroy_model(&res->model);

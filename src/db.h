@@ -72,6 +72,7 @@ Gen_Handle_Option
 database_lookup_stable_id(Database_Resource_Kind kind, u32 stable_id);
 Database_Create_Result
 database_create_resource(Database_Resource_Create_Info *info);
+Database_Error detabase_destroy_resource(Gen_Handle handle);
 
 // NOTE(nico): These can fail today, but move toward a never fail approach. If
 // the requested resource doesn't exist, provide a fallback
