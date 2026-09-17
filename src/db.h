@@ -36,10 +36,12 @@ typedef enum Font_Stable_ID {
 
 typedef enum Material_Stable_ID {
   Material_Stable_Id_Default,
+  Material_Stable_Id_Debug,
 } Material_Stable_ID;
 
 typedef enum Texture_Stable_ID {
   Texture_Stable_ID_White,
+  Texture_Stable_ID_Checker,
 } Texture_Stable_ID;
 
 typedef Option(u32) Database_Stable_ID_Option;

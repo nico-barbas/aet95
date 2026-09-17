@@ -159,6 +159,34 @@ Database_Error init_database(Allocator allocator) {
     detabase_destroy_resource(white_texture_handle);
   };
 
+  byte checker_pixels[4][4] = {
+    {255, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {255, 0, 255, 255},
+  };
+  Gen_Handle checker_texture_handle = or_return(
+      database_create_resource(&(Database_Resource_Create_Info){
+        .kind = Database_Resource_Kind_Texture,
+        .stable_id = some(Database_Stable_ID_Option, Texture_Stable_ID_Checker),
+        .texture =
+            {
+              .kind = GPU_Texture_Kind_2D,
+              .space = GPU_Texture_Space_sRGB,
+              .source = GPU_Texture_Source_Raw_Memory,
+              .raw =
+                  {.data = &checker_pixels[0][0],
+                   .width = 2,
+                   .height = 2,
+                   .channels = 4},
+            },
+      }),
+      Database_Error_Failed_To_Initialize
+  );
+  errdefer {
+    detabase_destroy_resource(checker_texture_handle);
+  };
+
   // Materials
   // NOTE(nico): Fuck this shit. I need to think of a way to automate startup
   // resource creation. There 10 billions indirections in this shit
@@ -183,6 +211,28 @@ Database_Error init_database(Allocator allocator) {
   );
   errdefer {
     detabase_destroy_resource(default_material_handle);
+  };
+
+  Database_Resource_Ptr_Option checker_texture_resource_opt =
+      database_get_resource_ptr(checker_texture_handle);
+  if (!checker_texture_resource_opt.some) {
+    return Database_Error_Failed_To_Initialize;
+  }
+  Gen_Handle debug_material_handle = or_return(
+      database_create_resource(&(Database_Resource_Create_Info){
+        .kind = Database_Resource_Kind_Material,
+        .stable_id = some(Database_Stable_ID_Option, Material_Stable_Id_Debug),
+        .material =
+            {
+              .gpu_albedo = checker_texture_resource_opt.value->texture,
+              .gpu_sampler_filter = GPU_Sampler_Filter_Nearest,
+              .gpu_sampler_wrap = GPU_Sampler_Wrap_Clamp,
+            },
+      }),
+      Database_Error_Failed_To_Initialize
+  );
+  errdefer {
+    detabase_destroy_resource(debug_material_handle);
   };
 
   // Models

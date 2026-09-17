@@ -866,6 +866,11 @@ voxel_chunk_render(Voxel_Chunk *chunk, Renderer *renderer, Vec3 origin) {
   );
   assert(cube_model_handle_opt.some);
 
+  Gen_Handle_Option debug_material_handle_opt = database_lookup_stable_id(
+      Database_Resource_Kind_Material, Material_Stable_Id_Debug
+  );
+  assert(debug_material_handle_opt.some);
+
   for (i32 z = 0; z < chunk->depth; z += 1) {
     for (i32 y = 0; y < chunk->height; y += 1) {
       for (i32 x = 0; x < chunk->width; x += 1) {
@@ -890,6 +895,7 @@ voxel_chunk_render(Voxel_Chunk *chunk, Renderer *renderer, Vec3 origin) {
                 .transform =
                     mat4_from_trs(position, quat_identity(), unit_scale),
                 .color = color(1, 1, 1, 1),
+                .material_handles = {[0] = debug_material_handle_opt}
               }
           );
           break;

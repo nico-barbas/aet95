@@ -71,7 +71,7 @@ typedef struct Model_Draw_Info {
   Model *model;
   Mat4 transform;
   Color color;
-  Option(Gen_Handle) material_handles[MESH_PRIMITIVE_CAP];
+  Gen_Handle_Option material_handles[MESH_PRIMITIVE_CAP];
 } Model_Draw_Info;
 
 typedef Result(Model, Model_Error) Model_Create_Result;
