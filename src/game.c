@@ -895,7 +895,8 @@ voxel_chunk_render(Voxel_Chunk *chunk, Renderer *renderer, Vec3 origin) {
                 .transform =
                     mat4_from_trs(position, quat_identity(), unit_scale),
                 .color = color(1, 1, 1, 1),
-                .material_handles = {[0] = debug_material_handle_opt}
+                .material_handles =
+                    (Gen_Handle_Option[]){[0] = debug_material_handle_opt}
               }
           );
           break;

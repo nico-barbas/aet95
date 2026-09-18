@@ -13,6 +13,7 @@ typedef enum Database_Error : u32 {
   Database_Error_Invalid_Handle,
   Database_Error_Resource_Capacity_Reached,
   Database_Error_Failed_To_Initialize,
+  Database_Error_Failed_To_Resolve_Manifest,
   Database_Error_Failed_Alloc_Resource,
   Database_Error_Failed_Stream_Resource,
   Database_Error_Failed_To_Initialize_Resource,
@@ -82,5 +83,74 @@ Database_Model_Query database_query_model(Gen_Handle handle);
 Database_Material_Query database_query_material(Gen_Handle handle);
 Database_Texture_Query database_query_texture(Gen_Handle handle);
 Database_Font_Atlas_Query database_query_font_atlas(Gen_Handle handle);
+
+////////////////////////
+// Database Manifest
+////////////////////////
+typedef struct Database_Manifest_Handle {
+  Database_Resource_Kind kind;
+  u32 id;
+} Database_Manifest_Handle;
+
+// FIXME(nico): those structs will blow worker threads' stack.. It's over 2Kib..
+// Thankfully the manifest is meant to be declared statically in the rodata part
+// of the binary and the internal graph work with pointer but still
+typedef struct Database_Manifest_Model_Info {
+  union {
+    struct {
+      Model_Create_Info (*generate_proc)();
+      Database_Manifest_Handle *default_materials;
+      usize primitive_count;
+    } procedural;
+    struct {
+      Vertex_Array *vertices;
+      Index_Array *indices;
+      Database_Manifest_Handle *default_materials;
+      usize primitive_count;
+    } raw;
+  };
+} Database_Manifest_Model_Info;
+
+typedef struct Database_Manifest_Material_Info {
+  Database_Manifest_Handle albedo;
+} Database_Manifest_Material_Info;
+
+typedef struct Database_Manifest_Texture_Info {
+  union {
+    struct {
+      Array(u8) pixels;
+      u32 width;
+      u32 height;
+      u32 channels;
+    } raw;
+  };
+} Database_Manifest_Texture_Info;
+
+typedef struct Database_Manifest_Font_Info {
+  String filepath;
+} Database_Manifest_Font_Info;
+
+// NOTE(nico): no need for a discriminant since the position in the manifest
+// already gives out the type
+typedef struct Database_Manifest_Resource_Info {
+  enum Database_Manifest_Resource_Source {
+    Database_Manifest_Resource_Source_Raw,
+    Database_Manifest_Resource_Source_Procedural,
+    Database_Manifest_Resource_Source_File,
+  } source_kind;
+  union {
+    Database_Manifest_Model_Info model;
+    Database_Manifest_Material_Info material;
+    Database_Manifest_Texture_Info texture;
+    Database_Manifest_Font_Info font;
+  };
+} Database_Manifest_Resource_Info;
+
+typedef struct Database_Manifest {
+  Array(Database_Manifest_Resource_Info) resources[Database_Resource_Kind_MAX];
+} Database_Manifest;
+
+Database_Error
+resolve_database_manifest(Database_Manifest *manifest, Allocator allocator);
 
 #endif

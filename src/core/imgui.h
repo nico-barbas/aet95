@@ -102,7 +102,7 @@ typedef struct Element_Constraint {
 
 typedef struct Element_Font {
   f32 size;
-  i32 user_index;
+  u64 user_index;
   void *data;
 } Element_Font;
 

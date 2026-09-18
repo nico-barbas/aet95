@@ -1,7 +1,9 @@
 #include "db.h"
 
 #include "core/allocator.h"
+#include "core/array.h"
 #include "core/map.h"
+#include "core/math.h"
 #include "core/platform.h"
 #include "core/runtime.h"
 #include "core/strings.h"
@@ -11,6 +13,7 @@
 #include "model.h"
 
 #include <assert.h>
+#include <string.h>
 
 #define DB_GPU_ALLOCATOR_CAP (MEGABYTE * 128)
 #define DB_RESOURCE_CAP 512
@@ -255,7 +258,9 @@ Database_Error init_database(Allocator allocator) {
     return Database_Error_Failed_To_Initialize;
   }
   cube_resource_opt.value->model = or_return(
-      make_cube_model(&g_db.gpu_allocator, default_material_handle),
+      make_cube_model(
+          &g_db.gpu_allocator, default_material_handle, g_db.allocator
+      ),
       Database_Error_Failed_To_Initialize
   );
 
@@ -316,7 +321,7 @@ database_create_resource(Database_Resource_Create_Info *info) {
     switch (info->kind) {
     case Database_Resource_Kind_Model: {
       res->model = or_return(
-          make_model(&info->model),
+          make_model(&info->model, g_db.allocator),
           err(Database_Create_Result,
               Database_Error_Failed_To_Initialize_Resource)
       );
@@ -455,4 +460,269 @@ Database_Font_Atlas_Query database_query_font_atlas(Gen_Handle handle) {
   }
 
   return ok(Database_Font_Atlas_Query, &ptr_opt.value->font);
+}
+
+////////////////////////
+// Database Manifest
+////////////////////////
+
+typedef Array(usize) Usize_Array;
+
+typedef struct Database_Manifest_Node {
+  Database_Manifest_Handle handle;
+  Database_Manifest_Resource_Info *info;
+  Usize_Array dependencies;
+  enum Database_Manifest_Node_State : u32 {
+    Database_Manifest_Node_State_Faulted,
+    Database_Manifest_Node_State_Wait_On_Deps,
+    Database_Manifest_Node_State_Ready_To_Process,
+    Database_Manifest_Node_State_Processed,
+  } state;
+} Database_Manifest_Node;
+
+typedef struct Database_Manifest_Edge {
+  usize start;
+  usize end;
+} Database_Manifest_Edge;
+
+typedef struct Database_Manifest_Graph {
+  usize len;
+  Array(Database_Manifest_Node) nodes;
+  Open_Map edges;
+  Array(usize) leaves;
+  usize leave_count;
+
+  Array(usize) ready_queue;
+  usize ready_queue_length;
+  usize ready_queue_head;
+  usize ready_queue_tail;
+
+  usize offset_lookup[Database_Resource_Kind_MAX];
+} Database_Manifest_Graph;
+
+typedef Result(Usize_Array, Allocation_Error) Usize_Array_Result;
+
+// NOTE(nico): It's icky to take paramater pointers but it's C so whatever
+static u64 database_manifest_edge_hash(usize start, usize end) {
+  u64 hash = FNV1A_INITIAL_SEED;
+  hash = hash_fnv1a_stream(
+      &end, sizeof(usize), hash_fnv1a_stream(&start, sizeof(usize), hash)
+  );
+
+  return hash;
+}
+
+static usize database_manifest_graph_flatten_handle(
+    Database_Manifest_Graph *graph, Database_Manifest_Handle handle
+) {
+  return graph->offset_lookup[handle.kind] + handle.id;
+}
+
+static Usize_Array_Result make_database_manifest_deps_array(
+    Database_Manifest_Graph *graph,
+    Database_Manifest_Handle *deps,
+    usize len,
+    Allocator allocator
+) {
+  Usize_Array array = make_array(array, len, allocator);
+  if (array.items == nullptr) {
+    return err(Usize_Array_Result, Allocation_Error_Out_Of_Memory);
+  }
+
+  for (usize i = 0; i < len; i += 1) {
+    usize index = database_manifest_graph_flatten_handle(graph, deps[i]);
+    array_set(array, i, index);
+  }
+
+  return ok(Usize_Array_Result, array);
+}
+
+static void database_manifest_graph_build_model_node_dependencies(
+    Database_Manifest_Graph *graph,
+    Database_Manifest_Node *node,
+    Allocator allocator
+) {
+  Database_Manifest_Model_Info *model_info = &node->info->model;
+  switch (node->info->source_kind) {
+  case Database_Manifest_Resource_Source_Raw: {
+    Usize_Array_Result deps_result = make_database_manifest_deps_array(
+        graph,
+        model_info->raw.default_materials,
+        model_info->raw.primitive_count,
+        allocator
+    );
+
+    if (!deps_result.ok) {
+      node->dependencies = deps_result.value;
+      node->state = Database_Manifest_Node_State_Wait_On_Deps;
+    } else {
+      node->state = Database_Manifest_Node_State_Faulted;
+    }
+  } break;
+  case Database_Manifest_Resource_Source_Procedural: {
+    Usize_Array_Result deps_result = make_database_manifest_deps_array(
+        graph,
+        model_info->procedural.default_materials,
+        model_info->procedural.primitive_count,
+        allocator
+    );
+
+    if (!deps_result.ok) {
+      node->dependencies = deps_result.value;
+      node->state = Database_Manifest_Node_State_Wait_On_Deps;
+    } else {
+      node->state = Database_Manifest_Node_State_Faulted;
+    }
+  } break;
+  case Database_Manifest_Resource_Source_File:
+    node->state = Database_Manifest_Node_State_Faulted;
+    break;
+  }
+}
+
+static void database_manifest_graph_build_material_node_dependencies(
+    Database_Manifest_Graph *graph,
+    Database_Manifest_Node *node,
+    Allocator allocator
+) {
+  Database_Manifest_Material_Info *material_info = &node->info->material;
+
+  // NOTE(nico): Will probably add support for procedural and from file.
+  // For files, either a gltf file or a small hand-rolled format
+  if (node->info->source_kind != Database_Manifest_Resource_Source_Raw) {
+    node->state = Database_Manifest_Node_State_Faulted;
+    return;
+  }
+
+  Usize_Array_Result deps_result = make_database_manifest_deps_array(
+      graph, &material_info->albedo, 1, allocator
+  );
+
+  if (!deps_result.ok) {
+    node->dependencies = deps_result.value;
+    node->state = Database_Manifest_Node_State_Wait_On_Deps;
+  } else {
+    node->state = Database_Manifest_Node_State_Faulted;
+  }
+}
+
+// NOTE(nico): both these operations must be atomic
+
+static void database_manifest_graph_enqueue_ready_node(
+    Database_Manifest_Graph *graph, usize item
+) {}
+
+static void
+database_manifest_graph_dequeue_ready_node(Database_Manifest_Graph *graph) {}
+
+Database_Error
+resolve_database_manifest(Database_Manifest *manifest, Allocator allocator) {
+  // TODO(nico): we need to build a graph with a unified representation. First
+  // it need to resolve Manifest_handles to actual graph index
+
+  Database_Manifest_Graph graph = {0};
+
+  for (usize i = 0; i < Database_Resource_Kind_MAX; i += 1) {
+    graph.offset_lookup[i] = graph.len;
+    graph.len += manifest->resources[i].len;
+  }
+
+  graph.nodes = make_array(graph.nodes, graph.len, allocator);
+  if (graph.nodes.items == nullptr) {
+    return Database_Error_Failed_To_Resolve_Manifest;
+  }
+  defer {
+    delete_array(graph.nodes);
+  };
+
+  graph.edges = make_u64_open_map(Database_Manifest_Edge, graph.len, allocator);
+  if (graph.edges == nullptr) {
+    return Database_Error_Failed_To_Resolve_Manifest;
+  }
+  defer {
+    delete_open_map(graph.edges);
+  };
+
+  graph.leaves = make_array(graph.leaves, graph.len, allocator);
+  if (graph.leaves.items == nullptr) {
+    return Database_Error_Failed_To_Resolve_Manifest;
+  }
+  defer {
+    delete_array(graph.leaves);
+  };
+
+  // NOTE(nico): First version can use multiple pass, it's fine
+  for (usize i = 0; i < Database_Resource_Kind_MAX; i += 1) {
+    for (usize j = 0; j < manifest->resources[i].len; j += 1) {
+      usize index = graph.offset_lookup[i] + j;
+
+      Database_Manifest_Node *node = array_get_ptr(graph.nodes, index);
+      node->handle = (Database_Manifest_Handle){
+        .kind = (Database_Resource_Kind)i,
+        .id = (u32)j,
+      };
+      node->info = &manifest->resources[i].items[j];
+
+      // Build the deps graph based on the deps handles in the info
+      switch (node->handle.kind) {
+      case Database_Resource_Kind_Model: {
+        database_graph_build_model_node_dependencies(&graph, node, allocator);
+      } break;
+      case Database_Resource_Kind_Material: {
+        database_graph_build_material_node_dependencies(
+            &graph, node, allocator
+        );
+      } break;
+      case Database_Resource_Kind_Texture:
+      case Database_Resource_Kind_Font:
+        node->state = Database_Manifest_Node_State_Ready_To_Process;
+        break;
+      case Database_Resource_Kind_MAX:
+        assert(false);
+      }
+    }
+  }
+
+  for (usize i = 0; i < graph.len; i += 1) {
+    Database_Manifest_Node *node = &graph.nodes.items[i];
+    if (node->dependencies.len == 0) {
+      graph.leaves.items[graph.leave_count++] = i;
+      continue;
+    }
+
+    for (usize j = 0; i < node->dependencies.len; j += 1) {
+      usize dep = node->dependencies.items[j];
+      if (i == dep) {
+        node->state = Database_Manifest_Node_State_Faulted;
+      }
+
+      // FIXME(nico): how to detect cycles?
+      u64 hash = database_manifest_edge_hash(i, dep);
+
+      // TODO(nico): I want to add a "set if free" operation to open maps
+      if (open_map_get(graph.edges, hash) == nullptr) {
+        open_map_set(
+            graph.edges,
+            hash,
+            ((Database_Manifest_Edge){.start = i, .end = dep})
+        );
+      }
+    }
+  }
+
+  // TODO(nico): Now all the leaves can be pushed in the ready queue
+
+  // Since manifest can be loaded at any point of the application's execution
+  // (for example, scene switching), we need to dedup already present resource
+  // in the db as well
+
+  // Build the thread-safe priority queue. At this point leaves are already
+  // marked. At this point of the implementation, single-threaded processing is
+  // fine.
+
+  // Process the nodes until the queue is empty
+
+  // Join the thread pool
+
+  return Database_Error_None;
 }

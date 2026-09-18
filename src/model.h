@@ -5,11 +5,12 @@
 #include "core/platform.h"
 #include "core/types.h"
 
-#define MESH_PRIMITIVE_CAP 16
+// #define MESH_PRIMITIVE_CAP 16
 
 typedef enum Model_Error {
   Model_Error_None,
   Model_Error_Invalid_Data,
+  Model_Error_Failed_To_Create,
 } Model_Error;
 
 // NOTE(nico): until we have a more defined gpu allocator type, pass the gpu
@@ -35,8 +36,9 @@ typedef struct Mesh_Primitive {
 } Mesh_Primitive;
 
 typedef struct Model {
-  Mesh_Primitive primitives[MESH_PRIMITIVE_CAP];
-  Gen_Handle default_materials[MESH_PRIMITIVE_CAP];
+  Allocator allocator;
+  Mesh_Primitive *primitives;
+  Gen_Handle *default_materials;
   AABB_Collider collider;
   usize primitive_count;
 } Model;
@@ -61,17 +63,17 @@ typedef struct Mesh_Primitive_Draw_Info {
 
 typedef struct Model_Create_Info {
   GPU_Buffer *gpu_allocator;
+  Vertex_Array *cpu_vertices;
+  Index_Array *cpu_indices;
+  Gen_Handle *default_material;
   usize primitive_count;
-  Vertex_Array cpu_vertices[MESH_PRIMITIVE_CAP];
-  Index_Array cpu_indices[MESH_PRIMITIVE_CAP];
-  Gen_Handle default_material[MESH_PRIMITIVE_CAP];
 } Model_Create_Info;
 
 typedef struct Model_Draw_Info {
   Model *model;
   Mat4 transform;
   Color color;
-  Gen_Handle_Option material_handles[MESH_PRIMITIVE_CAP];
+  Gen_Handle_Option *material_handles;
 } Model_Draw_Info;
 
 typedef Result(Model, Model_Error) Model_Create_Result;
@@ -81,11 +83,13 @@ Mesh_Primitive_Create_Result
 make_mesh_primitive(Mesh_Primitive_Create_Info *info);
 Model_Error destroy_mesh_primitive(Mesh_Primitive *primitive);
 
-Model_Create_Result make_model(Model_Create_Info *info);
+Model_Create_Result make_model(Model_Create_Info *info, Allocator allocator);
 Model_Error destroy_model(Model *model);
-Model_Create_Result
-make_cube_model(GPU_Buffer *gpu_allocator, Gen_Handle default_material);
-Model_Create_Result
-make_plane_model(GPU_Buffer *gpu_allocator, Gen_Handle default_material);
+Model_Create_Result make_cube_model(
+    GPU_Buffer *gpu_allocator, Gen_Handle default_material, Allocator allocator
+);
+Model_Create_Result make_plane_model(
+    GPU_Buffer *gpu_allocator, Gen_Handle default_material, Allocator allocator
+);
 
 #endif

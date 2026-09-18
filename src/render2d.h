@@ -64,14 +64,12 @@ typedef struct Renderer_2D_Batch {
 
 typedef struct Renderer_2D {
   Allocator allocator;
-  // Render_Resource_Interface it;
 
   GPU_Buffer gpu_buffer;
   GPU_Buffer_Memory gpu_vertices;
   GPU_Buffer_Memory gpu_indices;
   GPU_Buffer_Memory gpu_global_data;
 
-  Font_Stable_ID font_id;
   Array(Vertex2D) cpu_vertices;
   Array(u32) cpu_indices;
   usize cpu_vertex_count;

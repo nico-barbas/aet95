@@ -255,9 +255,10 @@ void draw_model(Renderer *renderer, Model_Draw_Info *info) {
   for (usize i = 0; i < info->model->primitive_count; i += 1) {
     Mesh_Primitive *primitive = &info->model->primitives[i];
 
-    Gen_Handle material_handle = info->material_handles[i].some
-                                     ? info->material_handles[i].value
-                                     : info->model->default_materials[i];
+    Gen_Handle material_handle =
+        info->material_handles != nullptr && info->material_handles[i].some
+            ? info->material_handles[i].value
+            : info->model->default_materials[i];
 
     Material *material = unwrap(database_query_material(material_handle));
 
